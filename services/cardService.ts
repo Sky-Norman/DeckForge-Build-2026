@@ -34,35 +34,6 @@ export const getStarterDeck = (): CardData[] => {
   return deck;
 };
 
-export const buildDeck = (deckKey: string, library: CardData[]): CardData[] => {
-  // Fallback implementation since starterDecks.json is removed.
-  // We grab the basic starter deck template.
-  const basicDeck = getStarterDeck();
-
-  // If we have a full library loaded, we try to "hydrate" the template cards 
-  // with the latest data from the API (better text, rulings, etc)
-  if (library.length > 0) {
-      return basicDeck.map(templateCard => {
-          // Try to find the matching card in the library
-          const realCard = library.find(c => 
-              c.Name === templateCard.Name && 
-              c.Cost === templateCard.Cost &&
-              c.Type === templateCard.Type
-          );
-          
-          if (realCard) {
-              return {
-                  ...realCard,
-                  Image: getProxiedImageUrl(realCard.Image)
-              };
-          }
-          return templateCard;
-      });
-  }
-
-  return basicDeck;
-};
-
 export const fetchFullLibrary = async (): Promise<CardData[]> => {
   try {
     const cachedData = localStorage.getItem(CACHE_KEY);
@@ -89,7 +60,6 @@ export const fetchFullLibrary = async (): Promise<CardData[]> => {
     
     return cards;
   } catch (e) {
-    console.error("Failed to fetch library", e);
     return [];
   }
 };

@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { CardData, GamePhase, PlayerState, GameState, GameCard } from '../types';
-import { getStarterDeck, fetchFullLibrary, buildDeck } from '../services/cardService';
+import { getStarterDeck, fetchFullLibrary } from '../services/cardService';
 import { addToInkwell, createDeck, drawCard, playCard, questCard, challengeCard, startTurn, shuffleDeck, swapPlayers } from '../utils/gameEngine';
 import { generateOpponentMove } from '../utils/aiEngine';
 import { Hand } from './Hand';
@@ -14,8 +14,7 @@ const WINNING_LORE = 20;
 
 export const GameBoard: React.FC = () => {
   // --- APP STATE ---
-  const [isAppLoading, setIsAppLoading] = useState(true);
-  const [library, setLibrary] = useState<CardData[]>([]);
+  const [isAppLoading, setIsAppLoading] = useState(false);
 
   // --- SETTINGS STATE ---
   const [jumpstartEnabled, setJumpstartEnabled] = useState(true);
@@ -56,23 +55,10 @@ export const GameBoard: React.FC = () => {
   }, [aiLog]);
 
   // --- INITIALIZATION ---
-  const initializeGame = (loadedLibrary: CardData[]) => {
-    // Determine which deck to use. 
-    // If library loaded successfully, use AmberAmethyst from JSON.
-    // If library failed (empty), fallback to default template deck.
-    let playerDeckList: CardData[];
-    let opponentDeckList: CardData[];
-
-    if (loadedLibrary.length > 0) {
-        playerDeckList = buildDeck('AmberAmethyst', loadedLibrary);
-        opponentDeckList = buildDeck('EmeraldRuby', loadedLibrary); // Mix it up for opponent
-    } else {
-        playerDeckList = getStarterDeck();
-        opponentDeckList = getStarterDeck();
-    }
-
-    const deck = shuffleDeck(createDeck(playerDeckList));
-    const opponentDeck = shuffleDeck(createDeck(opponentDeckList));
+  const initializeGame = () => {
+    const starterCards = getStarterDeck();
+    const deck = shuffleDeck(createDeck(starterCards));
+    const opponentDeck = shuffleDeck(createDeck(starterCards));
     
     // Sandbox Setup: Opponent gets characters on field
     const validCharacters = opponentDeck.filter(c => c.Type === "Character");
@@ -109,23 +95,13 @@ export const GameBoard: React.FC = () => {
     
     setHistory([]);
     setFuture([]);
-    setAiLog(["Game Initialized.", loadedLibrary.length > 0 ? "Decks loaded from API." : "Offline Mode: Using Templates."]);
+    setAiLog(["Game Initialized."]);
     setActiveSide('PLAYER');
-    setIsAppLoading(false);
   };
 
   useEffect(() => {
-    // Initialization Sequence
-    const bootstrap = async () => {
-        setIsAppLoading(true);
-        const data = await fetchFullLibrary();
-        setLibrary(data);
-        initializeGame(data);
-    };
-    bootstrap().catch(err => {
-        console.error("Bootstrap failed", err);
-        setIsAppLoading(false);
-    });
+    fetchFullLibrary().catch(err => console.error("Library fetch failed", err));
+    initializeGame();
   }, []); 
 
   // --- HISTORY MANAGEMENT ---
@@ -155,10 +131,6 @@ export const GameBoard: React.FC = () => {
       setGameState(nextState);
       setFuture(newFuture);
       setAiLog(prev => [...prev, "Redo performed."]);
-  };
-
-  const handleRestart = () => {
-      initializeGame(library);
   };
 
   // --- ACTION WRAPPERS (Perspective Aware) ---
@@ -315,13 +287,7 @@ export const GameBoard: React.FC = () => {
   const selectedCard = visualPlayer.field.find(c => c.instanceId === gameState.selectedCardId);
   const canQuest = selectedCard && !selectedCard.isExerted && !selectedCard.isDried;
 
-  if (isAppLoading) return (
-    <div className="h-screen w-screen bg-slate-950 flex flex-col items-center justify-center text-amber-500 gap-4">
-        <Loader2 className="animate-spin" size={48} />
-        <div className="font-cinzel text-xl animate-pulse">Summoning Card Library...</div>
-        <div className="text-xs text-slate-500">Connecting to LorcanaJSON</div>
-    </div>
-  );
+  if (isAppLoading) return <div className="h-screen w-screen bg-slate-950 flex items-center justify-center text-amber-500"><Loader2 className="animate-spin" /></div>;
 
   return (
     <div className="flex flex-col h-screen w-screen bg-slate-950 overflow-hidden relative font-sans">
@@ -524,7 +490,7 @@ export const GameBoard: React.FC = () => {
         <div className="absolute inset-0 z-[100] flex flex-col items-center justify-center bg-slate-950/90 backdrop-blur-md">
             {playerWon ? <Trophy size={80} className="text-amber-400 mb-4" /> : <Skull size={80} className="text-red-500 mb-4" />}
             <h1 className="text-6xl font-cinzel font-bold text-slate-200 mb-2">{playerWon ? 'VICTORY' : 'DEFEAT'}</h1>
-            <button onClick={handleRestart} className="mt-8 px-8 py-3 bg-slate-800 border border-slate-600 hover:bg-slate-700 text-white font-cinzel rounded-lg flex items-center gap-2">
+            <button onClick={initializeGame} className="mt-8 px-8 py-3 bg-slate-800 border border-slate-600 hover:bg-slate-700 text-white font-cinzel rounded-lg flex items-center gap-2">
                 <RotateCw size={20} /> Play Again
             </button>
         </div>
