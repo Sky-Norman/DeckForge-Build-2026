@@ -4,8 +4,8 @@ export interface CardData {
   Name: string;
   Cost: number;
   Inkable: boolean;
-  Type: string;
-  Class?: string; // e.g. Storyborn, Dreamborn
+  Type: string; // Character, Item, Action, Song, Location
+  Class?: string;
   Strength?: number;
   Willpower?: number;
   Lore?: number;
@@ -13,14 +13,22 @@ export interface CardData {
   Image: string;
   Abilities?: string[];
   Flavor_Text?: string;
+  
+  // New Logic Fields
+  MoveCost?: number; // For Locations
+  Resist?: number;   // Keyword: Resist +X
+  Evasive?: boolean; // Keyword: Evasive
 }
 
 export interface GameCard extends CardData {
-  instanceId: string; // Unique ID for this specific card instance in the game
+  instanceId: string;
   isExerted: boolean;
-  isDried: boolean; // Summoning sickness
-  isFaceDown: boolean; // For Inkwell
-  damage: number; // Current damage on the card
+  isDried: boolean;
+  isFaceDown: boolean;
+  damage: number;
+  
+  // Location Mechanics
+  currentLocationId?: string; // If character is at a location
 }
 
 export enum Zone {
@@ -32,10 +40,11 @@ export enum Zone {
 }
 
 export enum GamePhase {
-  READY = 'READY', // Ready, Set
-  DRAW = 'DRAW',   // Draw
-  MAIN = 'MAIN',   // Main Phase
-  END = 'END'      // End of Turn
+  READY = 'READY',
+  SET = 'SET',    // "Set" Phase: Locations trigger, Start of turn effects
+  DRAW = 'DRAW',
+  MAIN = 'MAIN',
+  END = 'END'
 }
 
 export interface PlayerState {
@@ -45,16 +54,19 @@ export interface PlayerState {
   field: GameCard[];
   discard: GameCard[];
   lore: number;
-  inkCommitted: boolean; // Has player inked this turn?
+  inkCommitted: boolean;
 }
 
 export interface GameState {
   turn: number;
   phase: GamePhase;
   player: PlayerState;
-  opponent: PlayerState; // Simplified for now
+  opponent: PlayerState;
   loading: boolean;
-  selectedCardId?: string; // ID of the card currently selected by the player
+  selectedCardId?: string;
+  
+  // Heuristics
+  loreVelocity: number; // (Current Lore + Board Potential) / Turns
 }
 
 // --- LOGIC ENGINE TYPES ---
@@ -62,21 +74,11 @@ export interface GameState {
 export type EffectFunction = (state: GameState, sourceCard: GameCard, targetId?: string) => GameState;
 
 export interface CardLogic {
-  // Triggered when the card is played from hand
   onPlay?: EffectFunction;
-  
-  // Triggered when this card quests
   onQuest?: EffectFunction;
-  
-  // Triggered when this card challenges (before damage)
   onChallenge?: EffectFunction;
-
-  // Triggered when another ally is banished (For Dr. Facilier)
   onAllyBanished?: EffectFunction;
-  
-  // Triggered when the turn begins
   onTurnStart?: EffectFunction;
 }
 
-// The Registry maps a generic Card ID (Set_Num + Card_Num) to Logic
 export type CardRegistry = Record<string, CardLogic>;

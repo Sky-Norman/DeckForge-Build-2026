@@ -1,6 +1,6 @@
 import { GameState } from '../types';
 import { cloneGameState } from './gameStateUtils';
-import { swapPlayers, questCard, challengeCard, playCard, addToInkwell } from './gameEngine';
+import { swapPlayers, questCard, challengeCard, playCard, addToInkwell, calculateVelocity } from './gameEngine';
 
 interface AIResult {
     newState: GameState;
@@ -21,10 +21,26 @@ interface AIResult {
 export const generateOpponentMove = (currentState: GameState): { newState: GameState, log: string } => {
     let simState = cloneGameState(currentState);
     
+    // --- LORE VELOCITY HEURISTIC ---
+    // Compare velocities to determine strategy BEFORE perspective flip.
+    // 'currentState.player' is the HUMAN.
+    // 'currentState.opponent' is the AI.
+    const humanVelocity = calculateVelocity(currentState.player, currentState.turn);
+    const aiVelocity = calculateVelocity(currentState.opponent, currentState.turn);
+    
+    // Rule: IF (Opponent [Human] Velocity > Player [AI] Velocity) -> Prioritize Challenging.
+    const isAiLosingRace = humanVelocity > aiVelocity;
+    
+    const STRATEGY = isAiLosingRace ? "CONTROL" : "RUSH";
+    
+    // Weights based on Strategy
+    const W_QUEST = isAiLosingRace ? 0.6 : 1.5; // If losing race, quest less, fight more.
+    const W_CHALLENGE = isAiLosingRace ? 1.5 : 0.8; // If winning race, ignore threats unless huge value.
+
     // 1. Perspective Flip: AI becomes 'player' in the engine
     simState = swapPlayers(simState);
     
-    const logs: string[] = [];
+    const logs: string[] = [`[AI] Velocity Check - Human: ${humanVelocity}, AI: ${aiVelocity}. Strategy: ${STRATEGY}`];
     const possibleMoves: { type: string, score: number, execute: () => GameState, desc: string }[] = [];
 
     const aiHand = simState.player.hand;
@@ -32,50 +48,58 @@ export const generateOpponentMove = (currentState: GameState): { newState: GameS
     const aiInk = simState.player.inkwell.filter(i => !i.isExerted).length;
     const enemyField = simState.opponent.field;
 
-    // --- HEURISTIC 1: QUESTING (The Clock) ---
-    // High priority. If we can quest safely, do it.
+    // --- HEURISTIC 1: QUESTING ---
     aiField.forEach(card => {
         if (!card.isExerted && !card.isDried && (card.Lore || 0) > 0) {
             const loreVal = card.Lore || 0;
-            // Basic Score: 50 points per Lore
-            let score = 50 * loreVal;
             
-            // Risk Adjustment: If opponent has high strength ready, lower score slightly
+            // Base Score: 50 * Lore
+            let baseScore = 50 * loreVal;
+            
+            // Risk Adjustment
             const threat = enemyField.some(e => !e.isExerted && (e.Strength || 0) >= (card.Willpower || 0));
-            if (threat) score -= 20;
+            if (threat) baseScore -= 20;
+
+            // Strategy Multiplier
+            let finalScore = baseScore * W_QUEST;
 
             possibleMoves.push({
                 type: 'QUEST',
-                score: score,
-                desc: `Quest with ${card.Name} (Value: ${score})`,
+                score: finalScore,
+                desc: `Quest with ${card.Name} (V:${finalScore.toFixed(0)})`,
                 execute: () => questCard(simState, card.instanceId)
             });
         }
     });
 
-    // --- HEURISTIC 2: CHALLENGING (Board Control) ---
-    // If we can banish an enemy favorably.
+    // --- HEURISTIC 2: CHALLENGING ---
     aiField.forEach(attacker => {
         if (!attacker.isExerted && !attacker.isDried) {
             enemyField.forEach(defender => {
                 if (defender.isExerted) {
-                    const dmgToDef = attacker.Strength || 0;
-                    const dmgToAtt = defender.Strength || 0;
+                    // Check Evasive
+                    if (defender.Evasive && !attacker.Evasive) return;
+
+                    const dmgToDef = Math.max(0, (attacker.Strength || 0) - (defender.Resist || 0));
+                    const dmgToAtt = Math.max(0, (defender.Strength || 0) - (attacker.Resist || 0));
                     
                     const defDies = (defender.damage + dmgToDef) >= (defender.Willpower || 0);
                     const attDies = (attacker.damage + dmgToAtt) >= (attacker.Willpower || 0);
 
                     if (defDies) {
-                        // Base score for killing: 40 + (Target Lore * 10) + (Target Cost * 5)
-                        let score = 40 + ((defender.Lore || 0) * 10) + (defender.Cost * 5);
+                        // Base score for killing: 40 + Value of target
+                        let baseScore = 40 + ((defender.Lore || 0) * 10) + (defender.Cost * 5);
                         
                         // Penalize if we die
-                        if (attDies) score -= (attacker.Cost * 5);
+                        if (attDies) baseScore -= (attacker.Cost * 5);
+
+                        // Strategy Multiplier
+                        let finalScore = baseScore * W_CHALLENGE;
 
                         possibleMoves.push({
                             type: 'CHALLENGE',
-                            score: score,
-                            desc: `Challenge ${defender.Name} with ${attacker.Name} (Value: ${score})`,
+                            score: finalScore,
+                            desc: `Challenge ${defender.Name} with ${attacker.Name} (V:${finalScore.toFixed(0)})`,
                             execute: () => challengeCard(simState, attacker.instanceId, defender.instanceId)
                         });
                     }
@@ -84,32 +108,29 @@ export const generateOpponentMove = (currentState: GameState): { newState: GameS
         }
     });
 
-    // --- HEURISTIC 3: PLAYING CARDS (Development) ---
+    // --- HEURISTIC 3: PLAYING CARDS ---
     aiHand.forEach(card => {
         if (card.Cost <= aiInk) {
-            // Score: Cost * 10 (Playing expensive cards is usually good)
             let score = card.Cost * 10;
             
-            // Bonus for characters with high stats
             if (card.Type === 'Character') {
                 score += (card.Strength || 0) + (card.Willpower || 0) + ((card.Lore || 0) * 5);
             }
-
+            
+            // Playing cards is generally always good, keep standard weight roughly 1.0
             possibleMoves.push({
                 type: 'PLAY',
                 score: score,
-                desc: `Play ${card.Name} (Value: ${score})`,
+                desc: `Play ${card.Name} (V:${score.toFixed(0)})`,
                 execute: () => playCard(simState, card.instanceId)
             });
         } else if (card.Inkable && !simState.player.inkCommitted) {
-             // Ink Logic: Lowest cost card in hand that isn't vital?
-             // Simple logic: Ink if we have > 1 card and this is low cost
              if (aiHand.length > 1) {
-                 const score = 15; // Low priority but necessary
+                 const score = 15; 
                  possibleMoves.push({
                     type: 'INK',
                     score: score,
-                    desc: `Ink ${card.Name} (Value: ${score})`,
+                    desc: `Ink ${card.Name} (V:${score.toFixed(0)})`,
                     execute: () => {
                          const updatedPlayer = addToInkwell(simState.player, card.instanceId);
                          return {
@@ -130,10 +151,8 @@ export const generateOpponentMove = (currentState: GameState): { newState: GameS
         const bestMove = possibleMoves[0];
         simState = bestMove.execute();
         logs.push(`[AI] ${bestMove.desc}`);
-        logs.push(`[AI] Heuristics: Selected score ${bestMove.score} over ${possibleMoves.length - 1} other options.`);
     } else {
-        logs.push("[AI] No valid moves available. Turn passed.");
-        // End turn could go here, but usually that's a phase change handled by the board
+        logs.push("[AI] No valid moves available.");
     }
 
     // 5. Flip perspective back to normal

@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { GameCard } from '../types';
-import { Sparkles, Ban, Sword, Shield, Scroll } from 'lucide-react';
+import { Sparkles, Ban, Sword, Shield, Scroll, Wind, MapPin } from 'lucide-react';
 
 interface CardProps {
   card: GameCard;
@@ -20,8 +20,8 @@ interface CardProps {
   onDragEnd?: () => void;
   
   // Combat Visuals
-  isChallenging?: boolean;    // Is this card currently being dragged to attack?
-  isUnderAttack?: boolean;    // Is this card currently being hovered by an attacker?
+  isChallenging?: boolean;
+  isUnderAttack?: boolean;
 }
 
 export const Card: React.FC<CardProps> = ({ 
@@ -52,7 +52,6 @@ export const Card: React.FC<CardProps> = ({
           e.preventDefault();
           return;
       }
-      // Create a "ghost" image or just let default behavior happen
       onDragStart(e, card.instanceId);
   };
 
@@ -71,12 +70,10 @@ export const Card: React.FC<CardProps> = ({
   };
 
   // --- Dynamic Styles ---
-  // Base classes
   let borderClass = isSelected ? 'ring-4 ring-amber-400 scale-105 z-20 shadow-[0_0_30px_rgba(251,191,36,0.6)]' : 'border border-slate-800';
   let animationClass = '';
   let shadowClass = 'shadow-xl';
 
-  // Combat Override Styles
   if (isChallenging) {
       borderClass = 'ring-4 ring-red-500 scale-110 z-30';
       shadowClass = 'shadow-[0_0_40px_rgba(239,68,68,0.8)]';
@@ -103,7 +100,6 @@ export const Card: React.FC<CardProps> = ({
             </div>
         </div>
         <div className="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/black-scales.png')] opacity-30"></div>
-        {/* Hover Info for Ink */}
         <div className="absolute -top-8 left-1/2 -translate-x-1/2 bg-black/90 text-white text-[10px] px-2 py-1 rounded opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none whitespace-nowrap border border-slate-700 z-50">
             {card.Name}
         </div>
@@ -132,12 +128,38 @@ export const Card: React.FC<CardProps> = ({
         ${className}
       `}
     >
-        {/* Summoning Sickness Indicator */}
-        {card.isDried && !isExerted && !inInkwell && !isEnemy && (
-            <div className="absolute top-2 right-2 z-30 bg-black/50 rounded-full p-1 animate-pulse" title="Drying (Cannot Act)">
-                <Ban size={16} className="text-slate-400" />
-            </div>
-        )}
+        {/* Keywords Badges (Top Right) */}
+        <div className="absolute top-2 right-2 z-30 flex flex-col gap-1 items-end">
+            {/* Summoning Sickness */}
+            {card.isDried && !isExerted && !inInkwell && !isEnemy && (
+                <div className="bg-black/50 rounded-full p-1 animate-pulse" title="Drying (Cannot Act)">
+                    <Ban size={14} className="text-slate-400" />
+                </div>
+            )}
+            
+            {/* Evasive */}
+            {card.Evasive && (
+                <div className="bg-indigo-900/80 border border-indigo-500 rounded-full p-1 shadow-lg" title="Evasive">
+                    <Wind size={12} className="text-indigo-200" />
+                </div>
+            )}
+
+            {/* Resist */}
+            {(card.Resist || 0) > 0 && (
+                <div className="bg-blue-900/80 border border-blue-500 rounded px-1.5 py-0.5 shadow-lg flex items-center gap-0.5" title={`Resist +${card.Resist}`}>
+                    <Shield size={10} className="text-blue-200" />
+                    <span className="text-[10px] font-bold text-white">+{card.Resist}</span>
+                </div>
+            )}
+
+            {/* Location Move Cost */}
+            {card.Type === "Location" && (
+                <div className="bg-emerald-900/80 border border-emerald-500 rounded px-1.5 py-0.5 shadow-lg flex items-center gap-0.5" title={`Move Cost: ${card.MoveCost}`}>
+                     <MapPin size={10} className="text-emerald-200" />
+                     <span className="text-[10px] font-bold text-white">{card.MoveCost}</span>
+                </div>
+            )}
+        </div>
 
         {/* Damage Counters */}
         {card.damage > 0 && (
@@ -146,6 +168,13 @@ export const Card: React.FC<CardProps> = ({
                     -{card.damage}
                 </div>
             </div>
+        )}
+        
+        {/* At Location Indicator */}
+        {card.currentLocationId && (
+             <div className="absolute bottom-16 left-1/2 -translate-x-1/2 z-20 bg-emerald-800/90 px-2 py-0.5 rounded-full border border-emerald-500 text-[8px] font-bold text-emerald-100 flex items-center gap-1 shadow-lg whitespace-nowrap">
+                 <MapPin size={8} /> At Location
+             </div>
         )}
 
         {/* --- 1. Image Layer --- */}
@@ -191,18 +220,24 @@ export const Card: React.FC<CardProps> = ({
 
                 {/* Stats Row (Strength / Willpower / Lore) */}
                 <div className="flex justify-between items-center px-1 mb-1">
-                    <div className="flex items-center justify-center w-7 h-7 rounded-full bg-slate-700 border border-slate-500 text-white font-bold text-xs shadow-md" title="Strength">
-                        <Sword size={10} className="mr-0.5" /> {card.Strength}
-                    </div>
-                     <div className="flex items-center justify-center w-6 h-8 bg-slate-900 border border-emerald-500/50 rounded text-emerald-400 font-bold text-xs shadow-md" title="Lore">
-                         <div className="flex flex-col items-center">
-                            <Scroll size={8} />
-                            {card.Lore}
-                         </div>
-                    </div>
-                    <div className="flex items-center justify-center w-7 h-7 rounded-full bg-slate-700 border border-slate-500 text-white font-bold text-xs shadow-md" title="Willpower">
-                        <Shield size={10} className="mr-0.5" /> {card.Willpower}
-                    </div>
+                    {(card.Strength !== undefined) && (
+                        <div className="flex items-center justify-center w-7 h-7 rounded-full bg-slate-700 border border-slate-500 text-white font-bold text-xs shadow-md" title="Strength">
+                            <Sword size={10} className="mr-0.5" /> {card.Strength}
+                        </div>
+                    )}
+                    {card.Lore !== undefined && (
+                         <div className="flex items-center justify-center w-6 h-8 bg-slate-900 border border-emerald-500/50 rounded text-emerald-400 font-bold text-xs shadow-md" title="Lore">
+                             <div className="flex flex-col items-center">
+                                <Scroll size={8} />
+                                {card.Lore}
+                             </div>
+                        </div>
+                    )}
+                    {(card.Willpower !== undefined) && (
+                        <div className="flex items-center justify-center w-7 h-7 rounded-full bg-slate-700 border border-slate-500 text-white font-bold text-xs shadow-md" title="Willpower">
+                            <Shield size={10} className="mr-0.5" /> {card.Willpower}
+                        </div>
+                    )}
                 </div>
 
                 {/* Body Text Area */}

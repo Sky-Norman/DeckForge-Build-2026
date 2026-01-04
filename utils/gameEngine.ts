@@ -1,4 +1,4 @@
-import { GameCard, PlayerState, GameState } from '../types';
+import { GameCard, PlayerState, GameState, GamePhase } from '../types';
 import { getCardLogic } from './cardRegistry';
 
 // --- HELPER: State Based Effects (Death Check) ---
@@ -12,7 +12,6 @@ const cleanupBoard = (state: GameState): GameState => {
      newState.player.field = newState.player.field.filter(c => c.damage < (c.Willpower || 0));
      newState.player.discard = [...newState.player.discard, ...playerDead];
      
-     // Queue Triggers (e.g., Dr Facilier) - Simplified, checking all field cards for listeners
      newState.player.field.forEach(source => {
         const logic = getCardLogic(source);
         if (logic && logic.onAllyBanished) {
@@ -35,15 +34,41 @@ const cleanupBoard = (state: GameState): GameState => {
       newState = t.logic(newState, t.source, t.banished.instanceId);
   });
 
-  return newState;
+  return updateLoreVelocity(newState);
+};
+
+// --- PREDICTIVE WINNING ALGORITHM ---
+export const calculateVelocity = (player: PlayerState, turn: number): number => {
+    if (turn === 0) return 0;
+    
+    // 1. Current Banked Lore
+    let potential = player.lore;
+
+    // 2. Board Potential (Quest Power + Location Passive)
+    const onBoardPotential = player.field.reduce((acc, card) => {
+        // Character Questing
+        if (card.Type === "Character" && !card.isDried && !card.isExerted) {
+            return acc + (card.Lore || 0);
+        }
+        // Location Passive
+        if (card.Type === "Location") {
+            return acc + (card.Lore || 0);
+        }
+        return acc;
+    }, 0);
+
+    return parseFloat(((potential + onBoardPotential) / turn).toFixed(2));
+};
+
+const updateLoreVelocity = (state: GameState): GameState => {
+    return {
+        ...state,
+        loreVelocity: calculateVelocity(state.player, state.turn)
+    };
 };
 
 // --- CORE MECHANICS ---
 
-/**
- * Swaps the Player and Opponent in the state.
- * Used for AI calculations and "Sandbox Mode" manual opponent control.
- */
 export const swapPlayers = (state: GameState): GameState => {
     return {
         ...state,
@@ -86,7 +111,7 @@ export const drawCard = (state: PlayerState, count: number = 1): PlayerState => 
 };
 
 export const addToInkwell = (state: PlayerState, cardInstanceId: string): PlayerState => {
-  if (state.inkCommitted) return state; // Rule: 1 ink per turn
+  if (state.inkCommitted) return state; 
 
   const cardIndex = state.hand.findIndex(c => c.instanceId === cardInstanceId);
   if (cardIndex === -1) return state;
@@ -117,7 +142,6 @@ const payInk = (player: PlayerState, cost: number): PlayerState | null => {
     const availableInk = player.inkwell.filter(c => !c.isExerted);
     if (availableInk.length < cost) return null; // Cannot afford
 
-    // Exert the ink
     let costPaid = 0;
     const newInkwell = player.inkwell.map(c => {
         if (costPaid < cost && !c.isExerted) {
@@ -153,13 +177,12 @@ export const playCard = (gameState: GameState, cardInstanceId: string, targetId?
 
   const playedCard: GameCard = {
     ...card,
-    isDried: true, // Summoning sickness
+    isDried: true, 
     isExerted: false,
     damage: 0
   };
 
-  // 3. Determine Zone (Character/Item -> Field, Action -> Discard)
-  const isPermanent = card.Type === "Character" || card.Type === "Item";
+  const isPermanent = card.Type === "Character" || card.Type === "Item" || card.Type === "Location";
   
   let newState: GameState = {
     ...gameState,
@@ -171,25 +194,57 @@ export const playCard = (gameState: GameState, cardInstanceId: string, targetId?
     }
   };
 
-  // 4. Trigger OnPlay (NOW WITH TARGET ID)
   const logic = getCardLogic(card);
   if (logic && logic.onPlay) {
     newState = logic.onPlay(newState, playedCard, targetId);
   }
 
-  // 5. Cleanup (If actions killed things)
   return cleanupBoard(newState);
+};
+
+// --- LOCATION MECHANICS ---
+
+export const moveCharacterToLocation = (state: GameState, characterId: string, locationId: string): GameState => {
+    const character = state.player.field.find(c => c.instanceId === characterId);
+    const location = state.player.field.find(c => c.instanceId === locationId);
+
+    if (!character || !location) return state;
+    if (character.Type !== "Character" || location.Type !== "Location") return state;
+    if (character.isDried) return state; // Characters cannot move if drying (usually)
+    if (character.currentLocationId === locationId) return state;
+
+    // Check Cost
+    const moveCost = location.MoveCost || 0;
+    const playerAfterPayment = payInk(state.player, moveCost);
+    
+    if (!playerAfterPayment) {
+        console.warn("Not enough ink to move to location");
+        return state;
+    }
+
+    // Update Character
+    const newField = playerAfterPayment.field.map(c => 
+        c.instanceId === characterId ? { ...c, currentLocationId: locationId } : c
+    );
+
+    const newState = {
+        ...state,
+        player: {
+            ...playerAfterPayment,
+            field: newField
+        }
+    };
+
+    return updateLoreVelocity(newState);
 };
 
 export const questCard = (gameState: GameState, cardInstanceId: string): GameState => {
     const card = gameState.player.field.find(c => c.instanceId === cardInstanceId);
     
-    // Validation
     if (!card) return gameState;
     if (card.isExerted) return gameState;
     if (card.isDried) return gameState;
 
-    // Exert
     const newField = gameState.player.field.map(c => 
         c.instanceId === cardInstanceId ? { ...c, isExerted: true } : c
     );
@@ -203,24 +258,27 @@ export const questCard = (gameState: GameState, cardInstanceId: string): GameSta
         }
     };
 
-    // Trigger OnQuest
     const logic = getCardLogic(card);
     if (logic && logic.onQuest) {
         newState = logic.onQuest(newState, card);
     }
 
-    return newState;
+    return updateLoreVelocity(newState);
 };
 
-export const challengeCard = (gameState: GameState, attackerId: string, defenderId: string): GameState => {
+// --- COMBAT ENGINE (Challenge) ---
+
+export const resolveChallenge = (gameState: GameState, attackerId: string, defenderId: string): GameState => {
     const attacker = gameState.player.field.find(c => c.instanceId === attackerId);
     const defender = gameState.opponent.field.find(c => c.instanceId === defenderId);
 
-    // Validation
     if (!attacker || !defender) return gameState;
     if (attacker.isExerted || attacker.isDried) return gameState;
-    if (!defender.isExerted) {
-        console.warn("Cannot challenge unexerted character (unless Evasive - not impl)");
+    if (!defender.isExerted) return gameState; 
+
+    // --- KEYWORD CHECK: EVASIVE ---
+    if (defender.Evasive && !attacker.Evasive) {
+        console.warn("Cannot challenge Evasive character without Evasive.");
         return gameState;
     }
 
@@ -229,11 +287,16 @@ export const challengeCard = (gameState: GameState, attackerId: string, defender
         c.instanceId === attackerId ? { ...c, isExerted: true } : c
     );
 
-    // Calculate Damage
-    // Apply Attacker Strength to Defender
-    // Apply Defender Strength to Attacker
-    const damageToDefender = attacker.Strength || 0;
-    const damageToAttacker = defender.Strength || 0;
+    // --- DAMAGE CALCULATION (RESIST) ---
+    const attackerStrength = attacker.Strength || 0;
+    const defenderStrength = defender.Strength || 0;
+
+    const defenderResist = defender.Resist || 0;
+    const attackerResist = attacker.Resist || 0;
+
+    // Resist reduces damage, but not below 0
+    const damageToDefender = Math.max(0, attackerStrength - defenderResist);
+    const damageToAttacker = Math.max(0, defenderStrength - attackerResist);
 
     const finalPlayerField = newPlayerField.map(c => 
         c.instanceId === attackerId ? { ...c, damage: c.damage + damageToAttacker } : c
@@ -245,20 +308,18 @@ export const challengeCard = (gameState: GameState, attackerId: string, defender
 
     let newState = {
         ...gameState,
-        player: {
-            ...gameState.player,
-            field: finalPlayerField
-        },
-        opponent: {
-            ...gameState.opponent,
-            field: finalOpponentField
-        },
-        selectedCardId: undefined // Deselect after combat
+        player: { ...gameState.player, field: finalPlayerField },
+        opponent: { ...gameState.opponent, field: finalOpponentField },
+        selectedCardId: undefined
     };
 
-    // Check Deaths
     return cleanupBoard(newState);
 };
+
+// Reuse this wrapper to maintain API compatibility with old calls
+export const challengeCard = resolveChallenge; 
+
+// --- PHASES ---
 
 export const readyPhase = (state: PlayerState): PlayerState => {
   return {
@@ -269,13 +330,44 @@ export const readyPhase = (state: PlayerState): PlayerState => {
   };
 };
 
-export const startTurn = (gameState: GameState): GameState => {
-    const readyPlayer = readyPhase(gameState.player);
-    const drawnPlayer = drawCard(readyPlayer, 1);
+const setPhase = (state: GameState): GameState => {
+    let newState = { ...state, phase: GamePhase.SET };
     
-    return {
+    // 1. Locations Gain Lore (Passive)
+    // "Passive Lore from Locations triggers at 'Set' phase"
+    const locations = newState.player.field.filter(c => c.Type === "Location");
+    if (locations.length > 0) {
+        const loreGain = locations.reduce((acc, loc) => acc + (loc.Lore || 0), 0);
+        newState.player.lore += loreGain;
+    }
+
+    // 2. Start of Turn Effects
+    // (Future implementation: Iterate field for onTurnStart listeners)
+
+    return newState;
+};
+
+export const startTurn = (gameState: GameState): GameState => {
+    // 1. READY
+    let newState = {
         ...gameState,
+        phase: GamePhase.READY,
         turn: gameState.turn + 1,
-        player: drawnPlayer
+        player: readyPhase(gameState.player)
     };
+
+    // 2. SET
+    newState = setPhase(newState);
+
+    // 3. DRAW
+    newState = {
+        ...newState,
+        phase: GamePhase.DRAW,
+        player: drawCard(newState.player, 1)
+    };
+
+    // 4. MAIN
+    newState.phase = GamePhase.MAIN;
+
+    return updateLoreVelocity(newState);
 };

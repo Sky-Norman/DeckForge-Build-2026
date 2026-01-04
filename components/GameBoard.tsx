@@ -1,12 +1,12 @@
 import React, { useEffect, useState, useRef } from 'react';
-import { CardData, GamePhase, PlayerState, GameState, GameCard } from '../types';
+import { GamePhase, GameState, GameCard } from '../types';
 import { getStarterDeck, fetchFullLibrary } from '../services/cardService';
 import { addToInkwell, createDeck, drawCard, playCard, questCard, challengeCard, startTurn, shuffleDeck, swapPlayers } from '../utils/gameEngine';
 import { generateOpponentMove } from '../utils/aiEngine';
 import { Hand } from './Hand';
 import { Inkwell } from './Inkwell';
 import { Card } from './Card';
-import { Sword, RefreshCw, Sparkles, Scroll, RotateCcw, RotateCw, Trophy, Skull, Loader2, Bot, LayoutTemplate, Redo2, Eye, EyeOff } from 'lucide-react';
+import { Sword, RefreshCw, Sparkles, Scroll, RotateCcw, RotateCw, Trophy, Skull, Loader2, Bot, LayoutTemplate, Redo2, Eye, EyeOff, Activity } from 'lucide-react';
 
 const INITIAL_HAND_SIZE = 7;
 const SANDBOX_STARTING_INK_COUNT = 5;
@@ -21,7 +21,7 @@ export const GameBoard: React.FC = () => {
   
   // HISTORY (Undo/Redo)
   const [history, setHistory] = useState<GameState[]>([]);
-  const [future, setFuture] = useState<GameState[]>([]); // For Redo
+  const [future, setFuture] = useState<GameState[]>([]); 
 
   // SANDBOX CONTROLLER STATE
   const [activeSide, setActiveSide] = useState<'PLAYER' | 'OPPONENT'>('PLAYER');
@@ -34,7 +34,8 @@ export const GameBoard: React.FC = () => {
     loading: false,
     selectedCardId: undefined,
     player: { deck: [], hand: [], inkwell: [], field: [], discard: [], lore: 0, inkCommitted: false },
-    opponent: { deck: [], hand: [], inkwell: [], field: [], discard: [], lore: 0, inkCommitted: false }
+    opponent: { deck: [], hand: [], inkwell: [], field: [], discard: [], lore: 0, inkCommitted: false },
+    loreVelocity: 0
   });
 
   // --- DRAG STATE ---
@@ -90,12 +91,13 @@ export const GameBoard: React.FC = () => {
         loading: false,
         selectedCardId: undefined,
         player: initialPlayerState,
-        opponent: initialOpponentState
+        opponent: initialOpponentState,
+        loreVelocity: 0
     });
     
     setHistory([]);
     setFuture([]);
-    setAiLog(["Game Initialized."]);
+    setAiLog(["Game Initialized.", "Phases: Ready -> Set -> Draw"]);
     setActiveSide('PLAYER');
   };
 
@@ -116,7 +118,7 @@ export const GameBoard: React.FC = () => {
       const previousState = history[history.length - 1];
       const newHistory = history.slice(0, history.length - 1);
       
-      setFuture(prev => [gameState, ...prev]); // Push current to future
+      setFuture(prev => [gameState, ...prev]); 
       setGameState(previousState);
       setHistory(newHistory);
       setAiLog(prev => [...prev, "Undo performed."]);
@@ -127,7 +129,7 @@ export const GameBoard: React.FC = () => {
       const nextState = future[0];
       const newFuture = future.slice(1);
 
-      setHistory(prev => [...prev, gameState]); // Push current to history
+      setHistory(prev => [...prev, gameState]); 
       setGameState(nextState);
       setFuture(newFuture);
       setAiLog(prev => [...prev, "Redo performed."]);
@@ -135,17 +137,11 @@ export const GameBoard: React.FC = () => {
 
   // --- ACTION WRAPPERS (Perspective Aware) ---
   
-  // Helper to execute logic with perspective awareness
   const executeAction = (actionFn: (currentState: GameState) => GameState) => {
       if (isGameOver) return;
       
-      // 1. Prepare State (Flip if playing as Opponent)
       let workingState = activeSide === 'OPPONENT' ? swapPlayers(gameState) : gameState;
-      
-      // 2. Execute Action
       workingState = actionFn(workingState);
-
-      // 3. Restore State (Flip back)
       const finalState = activeSide === 'OPPONENT' ? swapPlayers(workingState) : workingState;
       
       pushStateToHistory(finalState);
@@ -187,16 +183,12 @@ export const GameBoard: React.FC = () => {
   const handleFieldCardClick = (cardId: string, isFromActivePlayerSide: boolean) => {
     if (isGameOver) return;
     
-    // In PLAYER mode: isFromActivePlayerSide = true means clicked PLAYER card.
-    // In OPPONENT mode: isFromActivePlayerSide = true means clicked OPPONENT card (visualized as friendly).
-    
     if (isFromActivePlayerSide) {
       setGameState(prev => ({
          ...prev,
          selectedCardId: prev.selectedCardId === cardId ? undefined : cardId
       }));
     } else {
-      // Clicked an enemy (while having something selected?)
       if (gameState.selectedCardId) {
           executeAction(state => {
               const newState = challengeCard(state, state.selectedCardId!, cardId);
@@ -209,7 +201,6 @@ export const GameBoard: React.FC = () => {
   const handleDragStart = (e: React.DragEvent, id: string) => {
       if (isGameOver) { e.preventDefault(); return; }
       
-      // Need to find card in the ACTIVE side's field/hand
       const activeState = activeSide === 'PLAYER' ? gameState.player : gameState.opponent;
 
       const fieldCard = activeState.field.find(c => c.instanceId === id);
@@ -231,7 +222,6 @@ export const GameBoard: React.FC = () => {
 
   const handleDragEnterEnemy = (id: string) => {
       if (!dragSourceId) return;
-      // Enemy depends on view
       const enemyState = activeSide === 'PLAYER' ? gameState.opponent : gameState.player;
       const enemy = enemyState.field.find(c => c.instanceId === id);
       
@@ -280,8 +270,6 @@ export const GameBoard: React.FC = () => {
   };
 
   // --- VIEW DATA PREPARATION ---
-  // If activeSide is OPPONENT, we visually swap the data passed to components
-  // The 'gameState' remains authoritative, but we feed the UI what it needs to see.
   const visualPlayer = activeSide === 'PLAYER' ? gameState.player : gameState.opponent;
   const visualOpponent = activeSide === 'PLAYER' ? gameState.opponent : gameState.player;
   const selectedCard = visualPlayer.field.find(c => c.instanceId === gameState.selectedCardId);
@@ -305,8 +293,8 @@ export const GameBoard: React.FC = () => {
                 <span className="text-2xl font-bold text-red-500 font-cinzel">{visualOpponent.lore} / 20</span>
             </div>
             <div className="flex flex-col items-center justify-center">
-                 <div className="text-slate-600 font-cinzel text-xs">TURN</div>
-                 <div className="text-2xl font-bold text-slate-200 font-cinzel leading-none">{gameState.turn}</div>
+                 <div className="text-slate-600 font-cinzel text-xs">TURN {gameState.turn}</div>
+                 <div className="text-2xl font-bold text-slate-200 font-cinzel leading-none">{gameState.phase}</div>
             </div>
             <div className="flex flex-col items-center">
                 <span className="text-[10px] text-slate-500 uppercase tracking-widest">Active Lore</span>
@@ -359,9 +347,20 @@ export const GameBoard: React.FC = () => {
                          <EyeOff size={14} /> Opponent
                       </button>
                   </div>
-                  <p className="text-[10px] text-slate-600 italic leading-tight">
-                      Switching perspective allows you to play cards and control the board as the Opponent manually.
-                  </p>
+              </div>
+
+              {/* HEURISTICS METRIC */}
+              <div className="p-4 border-b border-slate-800">
+                  <div className="text-xs text-slate-500 uppercase font-bold tracking-wider mb-2">Lore Velocity</div>
+                  <div className="flex items-center justify-between bg-black/40 p-3 rounded border border-slate-700">
+                      <div className="flex items-center gap-2 text-sky-400">
+                          <Activity size={18} />
+                          <span className="font-mono text-xl font-bold">{gameState.loreVelocity}</span>
+                      </div>
+                      <div className="text-[10px] text-slate-500 text-right">
+                          Points / Turn<br/>(Predictive)
+                      </div>
+                  </div>
               </div>
 
               {/* AI Controls */}
@@ -391,7 +390,7 @@ export const GameBoard: React.FC = () => {
 
           {/* --- MAIN GAME BOARD AREA --- */}
           <div className="flex-1 flex flex-col relative bg-[radial-gradient(ellipse_at_center,_var(--tw-gradient-stops))] from-slate-900 via-slate-950 to-black">
-                {/* OPPONENT FIELD (Visual Opponent) */}
+                {/* OPPONENT FIELD */}
                 <div className="flex-1 border-b border-slate-800/30 p-4 flex flex-wrap content-end justify-center gap-4 relative">
                     {activeSide === 'OPPONENT' && <div className="absolute top-2 left-2 text-xs text-red-500/50 font-bold uppercase tracking-widest pointer-events-none">Controlled by User</div>}
                     
@@ -411,7 +410,7 @@ export const GameBoard: React.FC = () => {
                     ))}
                 </div>
 
-                {/* PLAYER FIELD (Visual Player) */}
+                {/* PLAYER FIELD */}
                 <div 
                     className="flex-1 p-4 flex flex-wrap content-start justify-center gap-4 overflow-y-auto relative z-10"
                     onDragOver={handleDragOver}
