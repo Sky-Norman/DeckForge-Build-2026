@@ -1,10 +1,11 @@
 import { CardData } from '../types';
 
-const API_URL = '/allCards.json';
-const CACHE_KEY = 'deckforge_library_v1';
+const REMOTE_URL = 'https://lorcanajson.org/files/current/en/allCards.json';
+const LOCAL_URL = '/allCards.json';
+const CACHE_KEY = 'deckforge_library_v2'; // Bumped version to invalidate old cache
 const CACHE_EXPIRY = 7 * 24 * 60 * 60 * 1000; // 7 Days
 
-// LOGIC-FIRST MODE: No caching, No images. Pure Data Pipe.
+// LOGIC-FIRST MODE: No caching images, Pure Data Pipe.
 
 export const getStarterDeck = (): CardData[] => {
   const deck: CardData[] = [];
@@ -36,7 +37,6 @@ export const fetchFullLibrary = async (): Promise<CardData[]> => {
   }
 
   // 2. Evaluate Cache Freshness
-  let isStale = true;
   if (cachedData) {
     if (Date.now() - cachedData.timestamp < CACHE_EXPIRY) {
       console.log("DeckForge: Cache Hit (Fresh).");
@@ -45,48 +45,78 @@ export const fetchFullLibrary = async (): Promise<CardData[]> => {
     console.log("DeckForge: Cache Hit (Stale). Attempting background refresh...");
   }
 
-  // 3. Network Fetch (Local Asset)
+  // 3. Network Fetch Chain
+  let fetchedCards: CardData[] = [];
+  let sourceUsed = 'None';
+
+  // Attempt 1: Remote (LorcanaJSON)
   try {
-    console.log("[System] Loading baked library from local storage.");
-    const response = await fetch(API_URL);
-    
-    if (!response.ok) throw new Error(`HTTP Error: ${response.status}`);
-    
-    const data = await response.json();
-    let cards: CardData[] = data.cards || [];
-    
-    // Logic-First Mode: Strip Images & Hydrate
-    const processedCards = cards.map(card => ({
-        ...card,
-        Image: '' // Enforce No Images
-    }));
-
-    // Update Cache
-    try {
-      localStorage.setItem(CACHE_KEY, JSON.stringify({
-        timestamp: Date.now(),
-        cards: processedCards
-      }));
-      console.log("DeckForge: Cache Updated.");
-    } catch (writeError) {
-      console.warn("DeckForge: Cache Write Failed (Quota Exceeded?)", writeError);
+    console.log(`[System] Contacting Remote Library (${REMOTE_URL})...`);
+    const response = await fetch(REMOTE_URL);
+    if (response.ok) {
+        const data = await response.json();
+        if (data.cards && Array.isArray(data.cards) && data.cards.length > 0) {
+            fetchedCards = data.cards;
+            sourceUsed = 'Remote (LorcanaJSON)';
+            console.log("[System] Remote fetch successful.");
+        }
+    } else {
+        console.warn(`[System] Remote fetch returned ${response.status}`);
     }
-    
-    return processedCards;
-
   } catch (e) {
-    console.warn("DeckForge: Local asset fetch failed.", e);
-
-    // 4. Recovery: Use Stale Cache if available
-    if (cachedData) {
-      console.warn("DeckForge: Serving Stale Cache as fallback.");
-      return cachedData.cards;
-    }
-
-    // 5. Recovery: Use Hardcoded Templates if absolutely nothing else works
-    console.warn("DeckForge: Critical failure. Serving Starter Templates.");
-    return STARTER_DECK_TEMPLATES.map(c => ({...c, Image: ''}));
+    console.warn("[System] Remote fetch failed (CORS/Network):", e);
   }
+
+  // Attempt 2: Local Fallback (if Remote failed)
+  if (fetchedCards.length === 0) {
+    try {
+        console.log(`[System] Falling back to local asset (${LOCAL_URL})...`);
+        const response = await fetch(LOCAL_URL);
+        if (response.ok) {
+            const data = await response.json();
+            if (data.cards && Array.isArray(data.cards) && data.cards.length > 0) {
+                fetchedCards = data.cards;
+                sourceUsed = 'Local Asset (/allCards.json)';
+                console.log("[System] Local fetch successful.");
+            }
+        }
+    } catch (e) {
+        console.warn("[System] Local fetch failed:", e);
+    }
+  }
+
+  // Attempt 3: Hardcoded Templates (if both failed)
+  if (fetchedCards.length === 0) {
+     console.warn("[System] Critical Failure. Using Starter Deck Templates.");
+     
+     // Recovery: Use Stale Cache if available and better than templates
+     if (cachedData && cachedData.cards.length > 0) {
+         console.warn("[System] Serving Stale Cache as last resort.");
+         return cachedData.cards;
+     }
+
+     // Final Fallback
+     return STARTER_DECK_TEMPLATES.map(c => ({...c, Image: ''}));
+  }
+
+  // Logic-First Mode: Strip Images & Hydrate
+  const processedCards = fetchedCards.map(card => ({
+      ...card,
+      Image: '' // Enforce No Images
+  }));
+
+  // Update Cache (Only if we got real data)
+  try {
+    localStorage.setItem(CACHE_KEY, JSON.stringify({
+      timestamp: Date.now(),
+      cards: processedCards
+    }));
+    console.log(`DeckForge: Cache Updated from ${sourceUsed}.`);
+  } catch (writeError) {
+    console.warn("DeckForge: Cache Write Failed (Quota Exceeded?)", writeError);
+  }
+  
+  return processedCards;
 };
 
 // FALLBACK TEXT TEMPLATES
