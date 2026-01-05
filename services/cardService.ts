@@ -1,8 +1,8 @@
 import { CardData } from '../types';
 
 const REMOTE_URL = 'https://lorcanajson.org/files/current/en/allCards.json';
-const LOCAL_URL = '/allCards.json';
-const CACHE_KEY = 'deckforge_library_v2'; // Bumped version to invalidate old cache
+const LOCAL_URL = './allCards.json'; // Relative path for robustness
+const CACHE_KEY = 'deckforge_library_v3'; // Bumped version to invalidate old/empty cache
 const CACHE_EXPIRY = 7 * 24 * 60 * 60 * 1000; // 7 Days
 
 // LOGIC-FIRST MODE: No caching images, Pure Data Pipe.
@@ -38,11 +38,11 @@ export const fetchFullLibrary = async (): Promise<CardData[]> => {
 
   // 2. Evaluate Cache Freshness
   if (cachedData) {
-    if (Date.now() - cachedData.timestamp < CACHE_EXPIRY) {
+    if (Date.now() - cachedData.timestamp < CACHE_EXPIRY && cachedData.cards.length > 0) {
       console.log("DeckForge: Cache Hit (Fresh).");
       return cachedData.cards;
     }
-    console.log("DeckForge: Cache Hit (Stale). Attempting background refresh...");
+    console.log("DeckForge: Cache Hit (Stale or Empty). Attempting refresh...");
   }
 
   // 3. Network Fetch Chain
@@ -52,6 +52,7 @@ export const fetchFullLibrary = async (): Promise<CardData[]> => {
   // Attempt 1: Remote (LorcanaJSON)
   try {
     console.log(`[System] Contacting Remote Library (${REMOTE_URL})...`);
+    // Add cache buster to prevent browser from serving 404s from disk cache
     const response = await fetch(REMOTE_URL);
     if (response.ok) {
         const data = await response.json();
@@ -76,9 +77,13 @@ export const fetchFullLibrary = async (): Promise<CardData[]> => {
             const data = await response.json();
             if (data.cards && Array.isArray(data.cards) && data.cards.length > 0) {
                 fetchedCards = data.cards;
-                sourceUsed = 'Local Asset (/allCards.json)';
+                sourceUsed = 'Local Asset (allCards.json)';
                 console.log("[System] Local fetch successful.");
+            } else {
+               console.warn("[System] Local asset found but data structure invalid or empty.");
             }
+        } else {
+            console.warn(`[System] Local fetch failed with status: ${response.status}`);
         }
     } catch (e) {
         console.warn("[System] Local fetch failed:", e);
@@ -103,7 +108,7 @@ export const fetchFullLibrary = async (): Promise<CardData[]> => {
   const processedCards = fetchedCards.map(card => ({
       ...card,
       Image: '' // Enforce No Images
-  }));
+    }));
 
   // Update Cache (Only if we got real data)
   try {

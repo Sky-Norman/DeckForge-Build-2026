@@ -239,7 +239,9 @@ export const Card: React.FC<CardProps> = ({
                         ))}
                     </div>
                 ) : (
-                    <p className="text-[8px] text-slate-500 italic text-center">{card.Flavor_Text}</p>
+                    <p className="text-[8px] text-slate-500 italic text-center">
+                        {card.Flavor_Text || "..."}
+                    </p>
                 )}
             </div>
         </div>

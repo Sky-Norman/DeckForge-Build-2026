@@ -1,5 +1,6 @@
-import { GameCard, PlayerState, GameState, GamePhase } from '../types';
+import { GameCard, PlayerState, GameState, GamePhase, CardData } from '../types';
 import { getCardLogic } from './cardRegistry';
+import { DeckManifest } from './deckManifests';
 
 // --- HELPER: State Based Effects (Death Check) ---
 const cleanupBoard = (state: GameState): GameState => {
@@ -78,6 +79,43 @@ export const swapPlayers = (state: GameState): GameState => {
         player: state.opponent,
         opponent: state.player
     };
+};
+
+export const hydrateDeckFromManifest = (manifest: DeckManifest, library: CardData[]): GameCard[] => {
+  const deck: GameCard[] = [];
+  
+  for (const [key, quantity] of Object.entries(manifest.cards)) {
+    const [setStr, cardNumStr] = key.split('-');
+    const setNum = parseInt(setStr);
+    const cardNum = parseInt(cardNumStr);
+    
+    const cardTemplate = library.find(c => c.Set_Num === setNum && c.Card_Num === cardNum);
+    
+    if (cardTemplate) {
+      for (let i = 0; i < quantity; i++) {
+        deck.push({
+          ...cardTemplate,
+          instanceId: `deck-${manifest.chapter}-${setNum}-${cardNum}-${i}-${Math.random().toString(36).substr(2, 9)}`,
+          isExerted: false,
+          isDried: true,
+          isFaceDown: false,
+          damage: 0,
+          modifiers: {
+              cantQuest: false,
+              cantChallenge: false,
+              frozen: false,
+              evasiveGranted: false,
+              resistGranted: 0,
+              strengthBonus: 0
+          }
+        });
+      }
+    } else {
+        // Silently skip missing cards to allow partial hydration from truncated libraries
+    }
+  }
+  
+  return deck;
 };
 
 export const createDeck = (cardPool: any[], size: number = 60): GameCard[] => {

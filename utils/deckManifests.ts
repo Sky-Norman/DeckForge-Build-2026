@@ -17,13 +17,25 @@ export const OFFICIAL_STARTER_DECKS: Record<string, DeckManifest> = {
     name: "C1: Amber & Amethyst",
     chapter: 1,
     description: "Support & Recursion. Face: Moana - Of Motunui.",
-    cards: { "1-14": 1, "1-51": 1, "1-12": 3, "1-52": 3, "1-22": 3, "1-47": 3, "1-3": 2, "1-45": 2 }
+    cards: { 
+      "1-14": 1, "1-51": 1, "1-12": 3, "1-52": 2, "1-22": 3, "1-47": 2, 
+      "1-3": 2, "1-45": 2, "1-5": 2, "1-6": 2, "1-41": 3, "1-42": 2, 
+      "1-44": 2, "1-7": 3, "1-8": 1, "1-11": 3, "1-13": 3, "1-15": 3, 
+      "1-16": 3, "1-17": 2, "1-18": 2, "1-26": 2, "1-28": 2, "1-29": 2, 
+      "1-31": 1, "1-61": 2, "1-62": 2, "1-63": 2 
+    }
   },
   "EMERALD_RUBY_C1": {
     name: "C1: Emerald & Ruby",
     chapter: 1,
     description: "Evasion & Lore Theft. Face: Aladdin - Heroic Outlaw.",
-    cards: { "1-113": 1, "1-81": 1, "1-105": 3, "1-71": 3, "1-115": 2, "1-77": 3, "1-203": 2 }
+    cards: { 
+      "1-113": 1, "1-71": 1, "1-81": 1, "1-105": 2, "1-115": 1, "1-77": 2, 
+      "1-119": 1, "1-106": 3, "1-107": 3, "1-111": 3, "1-112": 3, "1-72": 2, 
+      "1-73": 3, "1-74": 3, "1-75": 3, "1-76": 3, "1-78": 2, "1-79": 2, 
+      "1-80": 2, "1-91": 3, "1-93": 2, "1-122": 3, "1-124": 2, "1-125": 1, 
+      "1-203": 2, "1-205": 2 
+    }
   },
   "SAPPHIRE_STEEL_C1": {
     name: "C1: Sapphire & Steel",
@@ -35,7 +47,13 @@ export const OFFICIAL_STARTER_DECKS: Record<string, DeckManifest> = {
     name: "C2: Amber & Sapphire",
     chapter: 2,
     description: "Seven Dwarfs & Items. Face: The Queen - Commanding Presence.",
-    cards: { "2-1": 1, "2-142": 1, "2-4": 3, "2-145": 3, "2-7": 3, "2-155": 2 }
+    cards: { 
+      "2-1": 1, "2-142": 1, "2-145": 1, "2-4": 1, "2-141": 1, "2-5": 3, 
+      "2-143": 3, "2-7": 2, "2-147": 2, "2-8": 2, "2-148": 2, "2-9": 3, 
+      "2-150": 3, "2-10": 3, "2-152": 3, "2-11": 3, "2-153": 3, "2-12": 3, 
+      "2-155": 3, "2-13": 3, "2-157": 2, "2-14": 3, "2-159": 2, "2-26": 2, 
+      "2-162": 2, "2-31": 2 
+    }
   },
   "AMETHYST_STEEL_C2": {
     name: "C2: Amethyst & Steel",
@@ -137,4 +155,4 @@ export const OFFICIAL_STARTER_DECKS: Record<string, DeckManifest> = {
     description: "Whispers - Boost mechanic. Face: Simba - King in the Making.",
     cards: { "10-1": 1, "10-71": 1, "10-4": 3, "10-74": 3, "10-12": 2 }
   }
-};  
+};

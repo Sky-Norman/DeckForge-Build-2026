@@ -1,13 +1,14 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { GamePhase, GameState, GameCard } from '../types';
-import { getStarterDeck, fetchFullLibrary } from '../services/cardService';
-import { addToInkwell, createDeck, drawCard, playCard, questCard, challengeCard, startTurn, shuffleDeck, swapPlayers } from '../utils/gameEngine';
+import { fetchFullLibrary } from '../services/cardService';
+import { addToInkwell, createDeck, drawCard, playCard, questCard, challengeCard, startTurn, shuffleDeck, swapPlayers, hydrateDeckFromManifest } from '../utils/gameEngine';
+import { OFFICIAL_STARTER_DECKS, DeckManifest } from '../utils/deckManifests';
 import { generateOpponentMove } from '../utils/aiEngine';
 import { simulateGames } from '../utils/batchSimulator';
 import { Hand } from './Hand';
 import { Inkwell } from './Inkwell';
 import { Card } from './Card';
-import { RefreshCw, Scroll, RotateCcw, RotateCw, Trophy, Skull, Loader2, Bot, LayoutTemplate, Redo2, Eye, EyeOff, Activity, FlaskConical } from 'lucide-react';
+import { RefreshCw, Scroll, RotateCcw, RotateCw, Trophy, Skull, Loader2, Bot, LayoutTemplate, Redo2, Eye, EyeOff, Activity, FlaskConical, Swords, Play, Settings2 } from 'lucide-react';
 
 const INITIAL_HAND_SIZE = 7;
 const SANDBOX_STARTING_INK_COUNT = 5;
@@ -15,10 +16,13 @@ const WINNING_LORE = 20;
 
 export const GameBoard: React.FC = () => {
   // --- APP STATE ---
-  const [isAppLoading, setIsAppLoading] = useState(false);
+  const [isAppLoading, setIsAppLoading] = useState(true);
   const [library, setLibrary] = useState<GameCard[]>([]);
 
-  // --- SETTINGS STATE ---
+  // --- SETUP STATE ---
+  const [isSetupMode, setIsSetupMode] = useState(true);
+  const [playerDeckKey, setPlayerDeckKey] = useState<string>("AMBER_AMETHYST_C1");
+  const [opponentDeckKey, setOpponentDeckKey] = useState<string>("RUBY_SAPPHIRE_C7");
   const [jumpstartEnabled, setJumpstartEnabled] = useState(true);
   
   // HISTORY (Undo/Redo)
@@ -57,51 +61,52 @@ export const GameBoard: React.FC = () => {
     }
   }, [aiLog]);
 
-  // --- INITIALIZATION ---
-  const initializeGame = async () => {
-    // If library not loaded, load it
-    let currentLib = library;
-    if (currentLib.length === 0) {
-        const lib = await fetchFullLibrary();
-        setLibrary(lib as GameCard[]);
-        currentLib = lib as GameCard[];
-    }
-    
-    // Fallback if fetch fails
-    const pool = currentLib.length > 0 ? currentLib : getStarterDeck();
-    
-    // Detect Source for Logging
-    const isRemoteSource = currentLib.length > 50; // Threshold to distinguish full library from fallback templates
-    const sourceMsg = isRemoteSource 
-        ? "[System] Data Source: Full Library (Remote/Local)" 
-        : "[System] Data Source: Starter Deck (Fallback)";
-    const sizeMsg = `[System] Library size: ${currentLib.length} cards`;
-    
-    const deck = shuffleDeck(createDeck(pool));
-    const opponentDeck = shuffleDeck(createDeck(pool));
-    
-    // Sandbox Setup: Opponent gets characters on field
-    const validCharacters = opponentDeck.filter(c => c.Type === "Character");
-    const opponentField = validCharacters.splice(0, 3).map(c => ({...c, isExerted: true})); 
+  // --- INITIALIZATION (Load Library Only) ---
+  useEffect(() => {
+      const loadLibrary = async () => {
+          setIsAppLoading(true);
+          const lib = await fetchFullLibrary();
+          setLibrary(lib as GameCard[]);
+          setIsAppLoading(false);
+      };
+      loadLibrary();
+  }, []);
 
+  // --- START GAME (Hydrate Decks) ---
+  const startGame = () => {
+    if (library.length === 0) return;
+
+    // 1. Hydrate Player Deck
+    const pManifest = OFFICIAL_STARTER_DECKS[playerDeckKey];
+    let pDeck = hydrateDeckFromManifest(pManifest, library);
+    pDeck = shuffleDeck(pDeck);
+
+    // 2. Hydrate Opponent Deck
+    const oManifest = OFFICIAL_STARTER_DECKS[opponentDeckKey];
+    let oDeck = hydrateDeckFromManifest(oManifest, library);
+    oDeck = shuffleDeck(oDeck);
+
+    // 3. Setup Board
     let startingInk: GameCard[] = [];
     let opponentStartingInk: GameCard[] = [];
-
+    
+    // Jumpstart Logic
     if (jumpstartEnabled) {
-        startingInk = deck.splice(0, SANDBOX_STARTING_INK_COUNT).map(c => ({
+        startingInk = pDeck.splice(0, SANDBOX_STARTING_INK_COUNT).map(c => ({
             ...c, isFaceDown: true, isExerted: false, damage: 0
         }));
-        opponentStartingInk = opponentDeck.splice(0, SANDBOX_STARTING_INK_COUNT).map(c => ({
+        opponentStartingInk = oDeck.splice(0, SANDBOX_STARTING_INK_COUNT).map(c => ({
             ...c, isFaceDown: true, isExerted: false, damage: 0
         }));
     }
 
+    // Initial Draw
     let initialPlayerState = drawCard({
-      deck, hand: [], inkwell: startingInk, field: [], discard: [], lore: 0, inkCommitted: false
+      deck: pDeck, hand: [], inkwell: startingInk, field: [], discard: [], lore: 0, inkCommitted: false
     }, INITIAL_HAND_SIZE);
 
     let initialOpponentState = drawCard({
-      deck: opponentDeck, hand: [], inkwell: opponentStartingInk, field: opponentField, discard: [], lore: 0, inkCommitted: false
+      deck: oDeck, hand: [], inkwell: opponentStartingInk, field: [], discard: [], lore: 0, inkCommitted: false
     }, INITIAL_HAND_SIZE);
 
     setGameState({
@@ -118,16 +123,13 @@ export const GameBoard: React.FC = () => {
     setFuture([]);
     setAiLog([
         "Tactical Oracle Online.", 
-        "Mode: Logic-First (Data Strip Active).",
-        sourceMsg,
-        sizeMsg
+        `Matchup: ${pManifest.name} vs ${oManifest.name}`,
+        `Library Size: ${library.length}`,
+        "Ready."
     ]);
     setActiveSide('PLAYER');
+    setIsSetupMode(false);
   };
-
-  useEffect(() => {
-    initializeGame();
-  }, []); 
 
   // --- BATCH SIMULATION (TACTICAL ORACLE) ---
   const handleRunBatch = async () => {
@@ -138,17 +140,21 @@ export const GameBoard: React.FC = () => {
       
       setAiLog(prev => [...prev, "Initializing Power Level Analysis...", "Simulating 100 Matches..."]);
       
-      // We simulate a mirror match using the current library pool as the deck source
-      const stats = await simulateGames(library, library, 100, (i) => {
+      // Filter library based on active deck selections for the simulation
+      const pManifest = OFFICIAL_STARTER_DECKS[playerDeckKey];
+      const pTemplate = hydrateDeckFromManifest(pManifest, library);
+
+      // Self-Play Mirror Match for Power Level
+      const stats = await simulateGames(pTemplate, pTemplate, 100, (i) => {
           if (i % 25 === 0) setAiLog(prev => [...prev, `Simulating match ${i}...`]);
       });
 
       setAiLog(prev => [
           ...prev, 
           "--- POWER LEVEL REPORT ($P_L$) ---",
+          `Deck: ${pManifest.name}`,
           `Power Score: ${stats.powerLevelScore}`,
-          `Win Rate: ${stats.winRate}%`,
-          `Matches: ${stats.matchesPlayed}`,
+          `Win Rate (Mirror): ${stats.winRate}%`,
           `Avg Turns: ${stats.avgTurns}`,
           `Avg Lore Vel: ${stats.avgLoreVelocity}`,
           "----------------------------------"
@@ -318,13 +324,86 @@ export const GameBoard: React.FC = () => {
       setDragSourceType(null);
   };
 
-  // --- VIEW DATA PREPARATION ---
+  // --- VIEW RENDER ---
+  
+  if (isAppLoading) return <div className="h-screen w-screen bg-slate-950 flex items-center justify-center text-amber-500"><Loader2 className="animate-spin" /></div>;
+
+  if (isSetupMode) {
+      return (
+          <div className="flex flex-col h-screen w-screen bg-slate-950 items-center justify-center relative overflow-hidden">
+              <div className="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/black-scales.png')] opacity-20"></div>
+              <div className="absolute inset-0 bg-gradient-to-b from-slate-900/50 via-slate-950/80 to-black pointer-events-none"></div>
+              
+              <div className="z-10 bg-slate-900 border border-slate-700 p-8 rounded-2xl shadow-2xl max-w-5xl w-full flex flex-col gap-8">
+                  <div className="text-center border-b border-slate-800 pb-6">
+                      <h1 className="text-4xl font-cinzel font-bold text-amber-500 tracking-wider mb-2">DeckForge Simulator</h1>
+                      <p className="text-slate-500 font-sans text-sm">Select archetypes for simulation</p>
+                  </div>
+
+                  <div className="flex flex-col md:flex-row gap-8 items-stretch justify-center">
+                      {/* Player Setup */}
+                      <div className="flex-1 flex flex-col gap-4">
+                          <div className="text-emerald-500 font-cinzel font-bold text-lg flex items-center gap-2">
+                              <Eye size={20} /> Player Deck
+                          </div>
+                          <DeckSelect 
+                             value={playerDeckKey} 
+                             onChange={setPlayerDeckKey} 
+                             manifests={OFFICIAL_STARTER_DECKS} 
+                          />
+                      </div>
+
+                      {/* VS Divider */}
+                      <div className="flex flex-col items-center justify-center text-slate-600">
+                          <div className="hidden md:block h-full w-px bg-slate-800"></div>
+                          <div className="bg-slate-950 border border-slate-700 p-2 rounded-full my-4">
+                              <Swords size={24} className="text-slate-400" />
+                          </div>
+                          <div className="hidden md:block h-full w-px bg-slate-800"></div>
+                      </div>
+
+                      {/* Opponent Setup */}
+                      <div className="flex-1 flex flex-col gap-4">
+                          <div className="text-red-500 font-cinzel font-bold text-lg flex items-center gap-2">
+                              <Bot size={20} /> Opponent Deck
+                          </div>
+                          <DeckSelect 
+                             value={opponentDeckKey} 
+                             onChange={setOpponentDeckKey} 
+                             manifests={OFFICIAL_STARTER_DECKS} 
+                          />
+                      </div>
+                  </div>
+                  
+                  {/* Settings Toggle (Jumpstart) */}
+                   <div className="flex justify-center py-4">
+                      <label className="flex items-center gap-3 cursor-pointer group select-none">
+                          <div className={`w-5 h-5 border rounded transition-colors flex items-center justify-center ${jumpstartEnabled ? 'bg-amber-600 border-amber-500' : 'border-slate-600 bg-slate-800'}`}>
+                              {jumpstartEnabled && <span className="text-white font-bold text-xs">✓</span>}
+                          </div>
+                          <input type="checkbox" className="hidden" checked={jumpstartEnabled} onChange={e => setJumpstartEnabled(e.target.checked)} />
+                          <div className="text-slate-400 group-hover:text-amber-400 transition-colors text-sm font-sans">
+                              Enable "Jumpstart" (Start with 5 Ink & Hand)
+                          </div>
+                      </label>
+                  </div>
+
+                  <button 
+                    onClick={startGame}
+                    className="bg-amber-700 hover:bg-amber-600 text-amber-50 py-4 rounded-lg font-cinzel font-bold text-xl shadow-[0_0_20px_rgba(245,158,11,0.3)] hover:shadow-[0_0_30px_rgba(245,158,11,0.5)] transition-all flex items-center justify-center gap-3 border border-amber-500/50"
+                  >
+                      <Play size={24} fill="currentColor" /> ENTER FORGE
+                  </button>
+              </div>
+          </div>
+      );
+  }
+
+  // --- MAIN GAME BOARD RENDER ---
   const visualPlayer = activeSide === 'PLAYER' ? gameState.player : gameState.opponent;
   const visualOpponent = activeSide === 'PLAYER' ? gameState.opponent : gameState.player;
   const selectedCard = visualPlayer.field.find(c => c.instanceId === gameState.selectedCardId);
   const canQuest = selectedCard && !selectedCard.isExerted && !selectedCard.isDried;
-
-  if (isAppLoading) return <div className="h-screen w-screen bg-slate-950 flex items-center justify-center text-amber-500"><Loader2 className="animate-spin" /></div>;
 
   return (
     <div className="flex flex-col h-screen w-screen bg-slate-950 overflow-hidden relative font-sans">
@@ -378,6 +457,29 @@ export const GameBoard: React.FC = () => {
                   <h2 className="text-amber-500 font-cinzel font-bold flex items-center gap-2">
                       <LayoutTemplate size={18} /> Tactical Oracle
                   </h2>
+              </div>
+
+              {/* Match Info */}
+              <div className="p-4 border-b border-slate-800 space-y-2">
+                  <div className="text-xs text-slate-500 uppercase font-bold tracking-wider flex items-center gap-2">
+                      <Swords size={12} /> Active Match
+                  </div>
+                  <div className="text-[10px] bg-slate-950 p-2 rounded border border-slate-800 text-slate-400">
+                      <div className="flex justify-between mb-1">
+                          <span className="text-emerald-500">Player:</span>
+                          <span>{OFFICIAL_STARTER_DECKS[playerDeckKey]?.name || "Custom"}</span>
+                      </div>
+                      <div className="flex justify-between">
+                          <span className="text-red-500">Opponent:</span>
+                          <span>{OFFICIAL_STARTER_DECKS[opponentDeckKey]?.name || "Custom"}</span>
+                      </div>
+                  </div>
+                  <button 
+                    onClick={() => setIsSetupMode(true)}
+                    className="w-full text-[10px] bg-slate-800 hover:bg-slate-700 text-slate-400 py-2 rounded border border-slate-700 transition-colors flex items-center justify-center gap-2"
+                  >
+                      <Settings2 size={12} /> Reconfigure Match
+                  </button>
               </div>
               
               {/* Perspective Switch */}
@@ -547,7 +649,7 @@ export const GameBoard: React.FC = () => {
         <div className="absolute inset-0 z-[100] flex flex-col items-center justify-center bg-slate-950/90 backdrop-blur-md">
             {playerWon ? <Trophy size={80} className="text-amber-400 mb-4" /> : <Skull size={80} className="text-red-500 mb-4" />}
             <h1 className="text-6xl font-cinzel font-bold text-slate-200 mb-2">{playerWon ? 'VICTORY' : 'DEFEAT'}</h1>
-            <button onClick={initializeGame} className="mt-8 px-8 py-3 bg-slate-800 border border-slate-600 hover:bg-slate-700 text-white font-cinzel rounded-lg flex items-center gap-2">
+            <button onClick={() => setIsSetupMode(true)} className="mt-8 px-8 py-3 bg-slate-800 border border-slate-600 hover:bg-slate-700 text-white font-cinzel rounded-lg flex items-center gap-2">
                 <RotateCw size={20} /> Play Again
             </button>
         </div>
@@ -555,3 +657,24 @@ export const GameBoard: React.FC = () => {
     </div>
   );
 };
+
+// --- HELPER COMPONENT ---
+const DeckSelect = ({ value, onChange, manifests }: { value: string, onChange: (v: string) => void, manifests: Record<string, DeckManifest> }) => {
+    const selected = manifests[value];
+    return (
+        <div className="flex flex-col gap-2">
+            <select 
+                value={value} 
+                onChange={(e) => onChange(e.target.value)}
+                className="bg-slate-950 border border-slate-700 text-slate-200 p-3 rounded font-sans text-sm outline-none focus:border-amber-500 transition-colors"
+            >
+                {Object.entries(manifests).map(([k, m]) => (
+                    <option key={k} value={k}>{m.name}</option>
+                ))}
+            </select>
+            <div className="bg-slate-800/50 p-3 rounded border border-slate-800 text-xs text-slate-400 min-h-[60px] leading-relaxed">
+                {selected?.description || "No description available."}
+            </div>
+        </div>
+    )
+}
