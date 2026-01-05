@@ -73,7 +73,7 @@ export const GameBoard: React.FC = () => {
     // Detect Source for Logging
     const isRemoteSource = currentLib.length > 50; // Threshold to distinguish full library from fallback templates
     const sourceMsg = isRemoteSource 
-        ? "[System] Data Source: Remote Library (LorcanaJSON)" 
+        ? "[System] Data Source: Baked Library (/allCards.json)" 
         : "[System] Data Source: Local Starter Deck (Fallback Mode)";
     const sizeMsg = `[System] Library size: ${currentLib.length} cards`;
     

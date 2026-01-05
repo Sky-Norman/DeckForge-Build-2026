@@ -1,6 +1,6 @@
 import { CardData } from '../types';
 
-const API_URL = 'https://lorcanajson.org/files/current/en/allCards.json';
+const API_URL = '/allCards.json';
 const CACHE_KEY = 'deckforge_library_v1';
 const CACHE_EXPIRY = 7 * 24 * 60 * 60 * 1000; // 7 Days
 
@@ -45,8 +45,9 @@ export const fetchFullLibrary = async (): Promise<CardData[]> => {
     console.log("DeckForge: Cache Hit (Stale). Attempting background refresh...");
   }
 
-  // 3. Network Fetch (with Stale Fallback)
+  // 3. Network Fetch (Local Asset)
   try {
+    console.log("[System] Loading baked library from local storage.");
     const response = await fetch(API_URL);
     
     if (!response.ok) throw new Error(`HTTP Error: ${response.status}`);
@@ -74,7 +75,7 @@ export const fetchFullLibrary = async (): Promise<CardData[]> => {
     return processedCards;
 
   } catch (e) {
-    console.warn("DeckForge: Network fetch failed.", e);
+    console.warn("DeckForge: Local asset fetch failed.", e);
 
     // 4. Recovery: Use Stale Cache if available
     if (cachedData) {
