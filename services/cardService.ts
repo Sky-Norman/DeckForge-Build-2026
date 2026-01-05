@@ -1,6 +1,8 @@
 import { CardData } from '../types';
 
 const API_URL = 'https://lorcanajson.org/files/current/en/allCards.json';
+const CACHE_KEY = 'deckforge_library_v1';
+const CACHE_EXPIRY = 7 * 24 * 60 * 60 * 1000; // 7 Days
 
 // LOGIC-FIRST MODE: No caching, No images. Pure Data Pipe.
 
@@ -19,23 +21,70 @@ export const getStarterDeck = (): CardData[] => {
 };
 
 export const fetchFullLibrary = async (): Promise<CardData[]> => {
+  let cachedData: { timestamp: number, cards: CardData[] } | null = null;
+
+  // 1. Attempt to Load from Cache
   try {
-    // Direct Fetch - No Local Storage Caching
+    const cachedString = localStorage.getItem(CACHE_KEY);
+    if (cachedString) {
+      cachedData = JSON.parse(cachedString);
+    }
+  } catch (e) {
+    console.warn("DeckForge: Cache corrupted. Clearing.", e);
+    localStorage.removeItem(CACHE_KEY);
+    cachedData = null;
+  }
+
+  // 2. Evaluate Cache Freshness
+  let isStale = true;
+  if (cachedData) {
+    if (Date.now() - cachedData.timestamp < CACHE_EXPIRY) {
+      console.log("DeckForge: Cache Hit (Fresh).");
+      return cachedData.cards;
+    }
+    console.log("DeckForge: Cache Hit (Stale). Attempting background refresh...");
+  }
+
+  // 3. Network Fetch (with Stale Fallback)
+  try {
     const response = await fetch(API_URL);
     
-    if (!response.ok) throw new Error(`Network response was not ok: ${response.statusText}`);
+    if (!response.ok) throw new Error(`HTTP Error: ${response.status}`);
     
     const data = await response.json();
     let cards: CardData[] = data.cards || [];
     
     // Logic-First Mode: Strip Images & Hydrate
-    return cards.map(card => ({
+    const processedCards = cards.map(card => ({
         ...card,
         Image: '' // Enforce No Images
     }));
+
+    // Update Cache
+    try {
+      localStorage.setItem(CACHE_KEY, JSON.stringify({
+        timestamp: Date.now(),
+        cards: processedCards
+      }));
+      console.log("DeckForge: Cache Updated.");
+    } catch (writeError) {
+      console.warn("DeckForge: Cache Write Failed (Quota Exceeded?)", writeError);
+    }
+    
+    return processedCards;
+
   } catch (e) {
-    console.error("Library fetch failed:", e);
-    return [];
+    console.warn("DeckForge: Network fetch failed.", e);
+
+    // 4. Recovery: Use Stale Cache if available
+    if (cachedData) {
+      console.warn("DeckForge: Serving Stale Cache as fallback.");
+      return cachedData.cards;
+    }
+
+    // 5. Recovery: Use Hardcoded Templates if absolutely nothing else works
+    console.warn("DeckForge: Critical failure. Serving Starter Templates.");
+    return STARTER_DECK_TEMPLATES.map(c => ({...c, Image: ''}));
   }
 };
 
