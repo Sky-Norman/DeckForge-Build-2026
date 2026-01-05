@@ -1,32 +1,32 @@
-name: Deploy DeckForge
+name: DeckForge Production Deploy
 
 on:
   push:
     branches: [ main ]
-  workflow_dispatch:
+  workflow_dispatch: # This adds the "manual run" button you need
 
 jobs:
-  deploy:
+  build-and-deploy:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
+      - name: Checkout Source
         uses: actions/checkout@v4
 
-      - name: Setup Node
+      - name: Setup Node environment
         uses: actions/setup-node@v4
         with:
           node-version: 20
           cache: 'npm'
 
-      - name: Build
+      - name: Install & Build
         run: |
           npm ci
           npm run build
 
-      - name: Upload to Azure
+      - name: Azure CLI Upload
         uses: azure/CLI@v1
         with:
-          inlineScript: |
+          inline_script: |
             az storage blob upload-batch \
               --connection-string "${{ secrets.AZURE_STORAGE_CONNECTION_STRING }}" \
               --source dist \
