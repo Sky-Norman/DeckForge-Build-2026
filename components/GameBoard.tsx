@@ -70,6 +70,13 @@ export const GameBoard: React.FC = () => {
     // Fallback if fetch fails
     const pool = currentLib.length > 0 ? currentLib : getStarterDeck();
     
+    // Detect Source for Logging
+    const isRemoteSource = currentLib.length > 50; // Threshold to distinguish full library from fallback templates
+    const sourceMsg = isRemoteSource 
+        ? "[System] Data Source: Remote Library (LorcanaJSON)" 
+        : "[System] Data Source: Local Starter Deck (Fallback Mode)";
+    const sizeMsg = `[System] Library size: ${currentLib.length} cards`;
+    
     const deck = shuffleDeck(createDeck(pool));
     const opponentDeck = shuffleDeck(createDeck(pool));
     
@@ -109,7 +116,12 @@ export const GameBoard: React.FC = () => {
     
     setHistory([]);
     setFuture([]);
-    setAiLog(["Tactical Oracle Online.", "Mode: Logic-First (Data Strip Active)."]);
+    setAiLog([
+        "Tactical Oracle Online.", 
+        "Mode: Logic-First (Data Strip Active).",
+        sourceMsg,
+        sizeMsg
+    ]);
     setActiveSide('PLAYER');
   };
 
