@@ -3,7 +3,7 @@ name: DeckForge Production Deploy
 on:
   push:
     branches: [ main ]
-  workflow_dispatch: # This adds the "manual run" button you need
+  workflow_dispatch:
 
 jobs:
   build-and-deploy:
@@ -16,7 +16,7 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 20
-          cache: 'npm'
+          # We removed "cache: npm" here because you don't have a package-lock.json
 
       - name: Install & Build
         run: |
