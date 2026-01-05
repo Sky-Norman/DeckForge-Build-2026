@@ -47,6 +47,9 @@ export const calculateVelocity = (player: PlayerState, turn: number): number => 
     // 2. Board Potential (Quest Power + Location Passive)
     const onBoardPotential = player.field.reduce((acc, card) => {
         // Character Questing
+        // Check Modifiers: Cannot Quest?
+        if (card.modifiers.cantQuest) return acc;
+        
         if (card.Type === "Character" && !card.isDried && !card.isExerted) {
             return acc + (card.Lore || 0);
         }
@@ -87,7 +90,15 @@ export const createDeck = (cardPool: any[], size: number = 60): GameCard[] => {
       isExerted: false,
       isDried: true,
       isFaceDown: false,
-      damage: 0
+      damage: 0,
+      modifiers: {
+          cantQuest: false,
+          cantChallenge: false,
+          frozen: false,
+          evasiveGranted: false,
+          resistGranted: 0,
+          strengthBonus: 0
+      }
     });
   }
   return deck;
@@ -179,7 +190,8 @@ export const playCard = (gameState: GameState, cardInstanceId: string, targetId?
     ...card,
     isDried: true, 
     isExerted: false,
-    damage: 0
+    damage: 0,
+    modifiers: { ...card.modifiers } // Clone modifiers
   };
 
   const isPermanent = card.Type === "Character" || card.Type === "Item" || card.Type === "Location";
@@ -242,6 +254,7 @@ export const questCard = (gameState: GameState, cardInstanceId: string): GameSta
     const card = gameState.player.field.find(c => c.instanceId === cardInstanceId);
     
     if (!card) return gameState;
+    if (card.modifiers.cantQuest) return gameState;
     if (card.isExerted) return gameState;
     if (card.isDried) return gameState;
 
@@ -273,11 +286,15 @@ export const resolveChallenge = (gameState: GameState, attackerId: string, defen
     const defender = gameState.opponent.field.find(c => c.instanceId === defenderId);
 
     if (!attacker || !defender) return gameState;
+    if (attacker.modifiers.cantChallenge) return gameState;
     if (attacker.isExerted || attacker.isDried) return gameState;
     if (!defender.isExerted) return gameState; 
 
     // --- KEYWORD CHECK: EVASIVE ---
-    if (defender.Evasive && !attacker.Evasive) {
+    const defenderHasEvasive = defender.Evasive || defender.modifiers.evasiveGranted;
+    const attackerHasEvasive = attacker.Evasive || attacker.modifiers.evasiveGranted;
+
+    if (defenderHasEvasive && !attackerHasEvasive) {
         console.warn("Cannot challenge Evasive character without Evasive.");
         return gameState;
     }
@@ -287,12 +304,12 @@ export const resolveChallenge = (gameState: GameState, attackerId: string, defen
         c.instanceId === attackerId ? { ...c, isExerted: true } : c
     );
 
-    // --- DAMAGE CALCULATION (RESIST) ---
-    const attackerStrength = attacker.Strength || 0;
-    const defenderStrength = defender.Strength || 0;
+    // --- DAMAGE CALCULATION (RESIST & BONUS) ---
+    const attackerStrength = (attacker.Strength || 0) + attacker.modifiers.strengthBonus;
+    const defenderStrength = (defender.Strength || 0) + defender.modifiers.strengthBonus;
 
-    const defenderResist = defender.Resist || 0;
-    const attackerResist = attacker.Resist || 0;
+    const defenderResist = (defender.Resist || 0) + defender.modifiers.resistGranted;
+    const attackerResist = (attacker.Resist || 0) + attacker.modifiers.resistGranted;
 
     // Resist reduces damage, but not below 0
     const damageToDefender = Math.max(0, attackerStrength - defenderResist);
@@ -325,7 +342,24 @@ export const readyPhase = (state: PlayerState): PlayerState => {
   return {
     ...state,
     inkCommitted: false,
-    field: state.field.map(c => ({ ...c, isExerted: false, isDried: false })),
+    field: state.field.map(c => {
+        // MODIFIER ENGINE: Frozen Check
+        if (c.modifiers.frozen) {
+            // Card stays exerted, consume frozen state
+            return {
+                ...c,
+                isDried: false,
+                modifiers: { ...c.modifiers, frozen: false }
+            };
+        }
+        return { 
+            ...c, 
+            isExerted: false, 
+            isDried: false,
+            // Reset temporary bonuses
+            modifiers: { ...c.modifiers, strengthBonus: 0, evasiveGranted: false, resistGranted: 0 }
+        };
+    }),
     inkwell: state.inkwell.map(c => ({ ...c, isExerted: false }))
   };
 };
@@ -334,15 +368,11 @@ const setPhase = (state: GameState): GameState => {
     let newState = { ...state, phase: GamePhase.SET };
     
     // 1. Locations Gain Lore (Passive)
-    // "Passive Lore from Locations triggers at 'Set' phase"
     const locations = newState.player.field.filter(c => c.Type === "Location");
     if (locations.length > 0) {
         const loreGain = locations.reduce((acc, loc) => acc + (loc.Lore || 0), 0);
         newState.player.lore += loreGain;
     }
-
-    // 2. Start of Turn Effects
-    // (Future implementation: Iterate field for onTurnStart listeners)
 
     return newState;
 };

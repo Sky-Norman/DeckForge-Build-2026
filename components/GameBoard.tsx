@@ -3,10 +3,11 @@ import { GamePhase, GameState, GameCard } from '../types';
 import { getStarterDeck, fetchFullLibrary } from '../services/cardService';
 import { addToInkwell, createDeck, drawCard, playCard, questCard, challengeCard, startTurn, shuffleDeck, swapPlayers } from '../utils/gameEngine';
 import { generateOpponentMove } from '../utils/aiEngine';
+import { simulateGames } from '../utils/batchSimulator';
 import { Hand } from './Hand';
 import { Inkwell } from './Inkwell';
 import { Card } from './Card';
-import { Sword, RefreshCw, Sparkles, Scroll, RotateCcw, RotateCw, Trophy, Skull, Loader2, Bot, LayoutTemplate, Redo2, Eye, EyeOff, Activity } from 'lucide-react';
+import { RefreshCw, Scroll, RotateCcw, RotateCw, Trophy, Skull, Loader2, Bot, LayoutTemplate, Redo2, Eye, EyeOff, Activity, FlaskConical } from 'lucide-react';
 
 const INITIAL_HAND_SIZE = 7;
 const SANDBOX_STARTING_INK_COUNT = 5;
@@ -15,6 +16,7 @@ const WINNING_LORE = 20;
 export const GameBoard: React.FC = () => {
   // --- APP STATE ---
   const [isAppLoading, setIsAppLoading] = useState(false);
+  const [library, setLibrary] = useState<GameCard[]>([]);
 
   // --- SETTINGS STATE ---
   const [jumpstartEnabled, setJumpstartEnabled] = useState(true);
@@ -56,10 +58,20 @@ export const GameBoard: React.FC = () => {
   }, [aiLog]);
 
   // --- INITIALIZATION ---
-  const initializeGame = () => {
-    const starterCards = getStarterDeck();
-    const deck = shuffleDeck(createDeck(starterCards));
-    const opponentDeck = shuffleDeck(createDeck(starterCards));
+  const initializeGame = async () => {
+    // If library not loaded, load it
+    let currentLib = library;
+    if (currentLib.length === 0) {
+        const lib = await fetchFullLibrary();
+        setLibrary(lib as GameCard[]);
+        currentLib = lib as GameCard[];
+    }
+    
+    // Fallback if fetch fails
+    const pool = currentLib.length > 0 ? currentLib : getStarterDeck();
+    
+    const deck = shuffleDeck(createDeck(pool));
+    const opponentDeck = shuffleDeck(createDeck(pool));
     
     // Sandbox Setup: Opponent gets characters on field
     const validCharacters = opponentDeck.filter(c => c.Type === "Character");
@@ -97,14 +109,39 @@ export const GameBoard: React.FC = () => {
     
     setHistory([]);
     setFuture([]);
-    setAiLog(["Game Initialized.", "Phases: Ready -> Set -> Draw"]);
+    setAiLog(["Tactical Oracle Online.", "Mode: Logic-First (Data Strip Active)."]);
     setActiveSide('PLAYER');
   };
 
   useEffect(() => {
-    fetchFullLibrary().catch(err => console.error("Library fetch failed", err));
     initializeGame();
   }, []); 
+
+  // --- BATCH SIMULATION (TACTICAL ORACLE) ---
+  const handleRunBatch = async () => {
+      if (library.length === 0) {
+          setAiLog(prev => [...prev, "Error: Library not loaded."]);
+          return;
+      }
+      
+      setAiLog(prev => [...prev, "Initializing Power Level Analysis...", "Simulating 100 Matches..."]);
+      
+      // We simulate a mirror match using the current library pool as the deck source
+      const stats = await simulateGames(library, library, 100, (i) => {
+          if (i % 25 === 0) setAiLog(prev => [...prev, `Simulating match ${i}...`]);
+      });
+
+      setAiLog(prev => [
+          ...prev, 
+          "--- POWER LEVEL REPORT ($P_L$) ---",
+          `Power Score: ${stats.powerLevelScore}`,
+          `Win Rate: ${stats.winRate}%`,
+          `Matches: ${stats.matchesPlayed}`,
+          `Avg Turns: ${stats.avgTurns}`,
+          `Avg Lore Vel: ${stats.avgLoreVelocity}`,
+          "----------------------------------"
+      ]);
+  };
 
   // --- HISTORY MANAGEMENT ---
   const pushStateToHistory = (newState: GameState) => {
@@ -284,6 +321,7 @@ export const GameBoard: React.FC = () => {
       <div className="h-16 bg-slate-900 border-b border-slate-800 flex items-center justify-between px-6 shadow-md z-50">
         <div className="text-slate-400 font-cinzel text-lg flex items-center gap-2">
             <span className="text-amber-600 font-bold">DeckForge</span>
+            <span className="text-xs text-slate-600 border border-slate-700 px-2 py-0.5 rounded ml-2">TACTICAL ORACLE</span>
         </div>
         
         {/* STATS */}
@@ -326,7 +364,7 @@ export const GameBoard: React.FC = () => {
           <div className="w-80 bg-slate-900 border-r border-slate-800 flex flex-col shadow-xl z-20">
               <div className="p-4 border-b border-slate-800">
                   <h2 className="text-amber-500 font-cinzel font-bold flex items-center gap-2">
-                      <LayoutTemplate size={18} /> Sandbox Controller
+                      <LayoutTemplate size={18} /> Tactical Oracle
                   </h2>
               </div>
               
@@ -370,14 +408,22 @@ export const GameBoard: React.FC = () => {
                   <button 
                     onClick={handleExecuteAI}
                     disabled={isGameOver}
-                    className="w-full bg-slate-800 border border-slate-600 hover:bg-slate-700 text-slate-200 py-3 rounded-md font-cinzel text-sm font-bold flex items-center justify-center gap-2 shadow-lg mb-4 transition-all hover:scale-[1.02] active:scale-[0.98]"
+                    className="w-full bg-slate-800 border border-slate-600 hover:bg-slate-700 text-slate-200 py-3 rounded-md font-cinzel text-sm font-bold flex items-center justify-center gap-2 shadow-lg mb-2 transition-all"
                   >
                       <Bot size={18} className="text-sky-400" />
-                      Execute AI Move
+                      Step AI
+                  </button>
+
+                  <button 
+                    onClick={handleRunBatch}
+                    className="w-full bg-indigo-900/50 border border-indigo-500 hover:bg-indigo-800 text-indigo-100 py-3 rounded-md font-cinzel text-sm font-bold flex items-center justify-center gap-2 shadow-lg mb-4 transition-all"
+                  >
+                      <FlaskConical size={18} className="text-indigo-300" />
+                      Run Power Analysis
                   </button>
 
                   <div className="flex-1 bg-black/40 rounded border border-slate-800 flex flex-col overflow-hidden">
-                      <div className="bg-slate-900 px-3 py-2 text-[10px] font-bold text-slate-500 border-b border-slate-800">HEURISTIC LOG</div>
+                      <div className="bg-slate-900 px-3 py-2 text-[10px] font-bold text-slate-500 border-b border-slate-800">SIMULATION LOG</div>
                       <div ref={logContainerRef} className="flex-1 overflow-y-auto p-3 space-y-2 font-mono text-[10px] text-slate-400">
                           {aiLog.length === 0 && <span className="text-slate-700 italic">No logs yet...</span>}
                           {aiLog.map((log, i) => (

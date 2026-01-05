@@ -23,19 +23,18 @@ export const generateOpponentMove = (currentState: GameState): { newState: GameS
     
     // --- LORE VELOCITY HEURISTIC ---
     // Compare velocities to determine strategy BEFORE perspective flip.
-    // 'currentState.player' is the HUMAN.
-    // 'currentState.opponent' is the AI.
     const humanVelocity = calculateVelocity(currentState.player, currentState.turn);
     const aiVelocity = calculateVelocity(currentState.opponent, currentState.turn);
     
-    // Rule: IF (Opponent [Human] Velocity > Player [AI] Velocity) -> Prioritize Challenging.
+    // Rule: IF (Opponent [Human] Velocity > Player [AI] Velocity) -> Prioritize Challenging/Control.
     const isAiLosingRace = humanVelocity > aiVelocity;
     
     const STRATEGY = isAiLosingRace ? "CONTROL" : "RUSH";
     
     // Weights based on Strategy
-    const W_QUEST = isAiLosingRace ? 0.6 : 1.5; // If losing race, quest less, fight more.
-    const W_CHALLENGE = isAiLosingRace ? 1.5 : 0.8; // If winning race, ignore threats unless huge value.
+    const W_QUEST = isAiLosingRace ? 0.6 : 1.5; 
+    const W_CHALLENGE = isAiLosingRace ? 1.5 : 0.8; 
+    const W_CONTROL_PLAY = isAiLosingRace ? 2.0 : 1.0;
 
     // 1. Perspective Flip: AI becomes 'player' in the engine
     simState = swapPlayers(simState);
@@ -50,17 +49,14 @@ export const generateOpponentMove = (currentState: GameState): { newState: GameS
 
     // --- HEURISTIC 1: QUESTING ---
     aiField.forEach(card => {
-        if (!card.isExerted && !card.isDried && (card.Lore || 0) > 0) {
+        if (!card.isExerted && !card.isDried && !card.modifiers.cantQuest && (card.Lore || 0) > 0) {
             const loreVal = card.Lore || 0;
-            
-            // Base Score: 50 * Lore
             let baseScore = 50 * loreVal;
             
             // Risk Adjustment
             const threat = enemyField.some(e => !e.isExerted && (e.Strength || 0) >= (card.Willpower || 0));
             if (threat) baseScore -= 20;
 
-            // Strategy Multiplier
             let finalScore = baseScore * W_QUEST;
 
             possibleMoves.push({
@@ -74,26 +70,23 @@ export const generateOpponentMove = (currentState: GameState): { newState: GameS
 
     // --- HEURISTIC 2: CHALLENGING ---
     aiField.forEach(attacker => {
-        if (!attacker.isExerted && !attacker.isDried) {
+        if (!attacker.isExerted && !attacker.isDried && !attacker.modifiers.cantChallenge) {
             enemyField.forEach(defender => {
                 if (defender.isExerted) {
                     // Check Evasive
-                    if (defender.Evasive && !attacker.Evasive) return;
+                    const defenderEvasive = defender.Evasive || defender.modifiers.evasiveGranted;
+                    const attackerEvasive = attacker.Evasive || attacker.modifiers.evasiveGranted;
+                    if (defenderEvasive && !attackerEvasive) return;
 
-                    const dmgToDef = Math.max(0, (attacker.Strength || 0) - (defender.Resist || 0));
-                    const dmgToAtt = Math.max(0, (defender.Strength || 0) - (attacker.Resist || 0));
+                    const dmgToDef = Math.max(0, ((attacker.Strength || 0) + attacker.modifiers.strengthBonus) - ((defender.Resist || 0) + defender.modifiers.resistGranted));
+                    const dmgToAtt = Math.max(0, ((defender.Strength || 0) + defender.modifiers.strengthBonus) - ((attacker.Resist || 0) + attacker.modifiers.resistGranted));
                     
                     const defDies = (defender.damage + dmgToDef) >= (defender.Willpower || 0);
                     const attDies = (attacker.damage + dmgToAtt) >= (attacker.Willpower || 0);
 
                     if (defDies) {
-                        // Base score for killing: 40 + Value of target
                         let baseScore = 40 + ((defender.Lore || 0) * 10) + (defender.Cost * 5);
-                        
-                        // Penalize if we die
                         if (attDies) baseScore -= (attacker.Cost * 5);
-
-                        // Strategy Multiplier
                         let finalScore = baseScore * W_CHALLENGE;
 
                         possibleMoves.push({
@@ -108,22 +101,45 @@ export const generateOpponentMove = (currentState: GameState): { newState: GameS
         }
     });
 
-    // --- HEURISTIC 3: PLAYING CARDS ---
+    // --- HEURISTIC 3: PLAYING CARDS (Branched Targeting) ---
     aiHand.forEach(card => {
         if (card.Cost <= aiInk) {
-            let score = card.Cost * 10;
             
-            if (card.Type === 'Character') {
-                score += (card.Strength || 0) + (card.Willpower || 0) + ((card.Lore || 0) * 5);
-            }
-            
-            // Playing cards is generally always good, keep standard weight roughly 1.0
+            // Branch 1: Simple Play (No Target)
+            const basePlayScore = (card.Cost * 10) + ((card.Strength || 0) + (card.Willpower || 0));
             possibleMoves.push({
                 type: 'PLAY',
-                score: score,
-                desc: `Play ${card.Name} (V:${score.toFixed(0)})`,
+                score: basePlayScore,
+                desc: `Play ${card.Name} (V:${basePlayScore.toFixed(0)})`,
                 execute: () => playCard(simState, card.instanceId)
             });
+
+            // Branch 2: Targeted Play (If Applicable)
+            // If the card is an Action or Character with abilities, try playing it against EVERY enemy
+            if (enemyField.length > 0 && (card.Type === 'Action' || (card.Abilities && card.Abilities.length > 0))) {
+                enemyField.forEach(target => {
+                     // Evaluate the impact
+                     // 1. Clone
+                     let branchState = cloneGameState(simState);
+                     // 2. Play
+                     branchState = playCard(branchState, card.instanceId, target.instanceId);
+                     
+                     // 3. Measure Delta in Opponent Velocity
+                     const preVel = calculateVelocity(simState.opponent, simState.turn);
+                     const postVel = calculateVelocity(branchState.opponent, branchState.turn);
+                     const velocityDelta = preVel - postVel;
+
+                     if (velocityDelta > 0) {
+                         const targetScore = basePlayScore + (velocityDelta * 100 * W_CONTROL_PLAY);
+                         possibleMoves.push({
+                            type: 'PLAY_TARGETED',
+                            score: targetScore,
+                            desc: `Play ${card.Name} targeting ${target.Name} (V:${targetScore.toFixed(0)}, -Vel: ${velocityDelta.toFixed(2)})`,
+                            execute: () => playCard(simState, card.instanceId, target.instanceId)
+                         });
+                     }
+                });
+            }
         } else if (card.Inkable && !simState.player.inkCommitted) {
              if (aiHand.length > 1) {
                  const score = 15; 
@@ -133,10 +149,7 @@ export const generateOpponentMove = (currentState: GameState): { newState: GameS
                     desc: `Ink ${card.Name} (V:${score.toFixed(0)})`,
                     execute: () => {
                          const updatedPlayer = addToInkwell(simState.player, card.instanceId);
-                         return {
-                             ...simState,
-                             player: updatedPlayer
-                         };
+                         return { ...simState, player: updatedPlayer };
                     }
                  });
              }

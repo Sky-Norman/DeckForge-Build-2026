@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React from 'react';
 import { GameCard } from '../types';
 import { Sparkles, Ban, Sword, Shield, Scroll, Wind, MapPin } from 'lucide-react';
 
@@ -43,7 +43,6 @@ export const Card: React.FC<CardProps> = ({
   isChallenging = false,
   isUnderAttack = false
 }) => {
-  const [imageError, setImageError] = useState(false);
   const isExerted = card.isExerted;
 
   // --- Handlers ---
@@ -107,7 +106,7 @@ export const Card: React.FC<CardProps> = ({
     );
   }
 
-  // --- Render: Card Front ---
+  // --- Render: Card Front (Text Mode) ---
   return (
     <div 
       onClick={onClick}
@@ -124,12 +123,13 @@ export const Card: React.FC<CardProps> = ({
         ${shadowClass}
         ${animationClass}
         ${isEnemy && !isExerted && !isTargetable && !isUnderAttack ? 'opacity-90' : ''}
-        overflow-hidden select-none bg-slate-900 
+        overflow-hidden select-none 
+        ${card.Inkable ? 'bg-slate-800' : 'bg-slate-900'}
         ${className}
       `}
     >
         {/* Keywords Badges (Top Right) */}
-        <div className="absolute top-2 right-2 z-30 flex flex-col gap-1 items-end">
+        <div className="absolute top-2 right-2 z-30 flex flex-col gap-1 items-end pointer-events-none">
             {/* Summoning Sickness */}
             {card.isDried && !isExerted && !inInkwell && !isEnemy && (
                 <div className="bg-black/50 rounded-full p-1 animate-pulse" title="Drying (Cannot Act)">
@@ -139,24 +139,25 @@ export const Card: React.FC<CardProps> = ({
             
             {/* Evasive */}
             {card.Evasive && (
-                <div className="bg-indigo-900/80 border border-indigo-500 rounded-full p-1 shadow-lg" title="Evasive">
-                    <Wind size={12} className="text-indigo-200" />
+                <div className="bg-indigo-900 border border-indigo-400 rounded px-1.5 py-0.5 shadow-lg flex items-center gap-1">
+                    <Wind size={10} className="text-indigo-200" />
+                    <span className="text-[9px] font-bold text-indigo-100 uppercase">Evasive</span>
                 </div>
             )}
 
             {/* Resist */}
             {(card.Resist || 0) > 0 && (
-                <div className="bg-blue-900/80 border border-blue-500 rounded px-1.5 py-0.5 shadow-lg flex items-center gap-0.5" title={`Resist +${card.Resist}`}>
+                <div className="bg-blue-900 border border-blue-400 rounded px-1.5 py-0.5 shadow-lg flex items-center gap-1">
                     <Shield size={10} className="text-blue-200" />
-                    <span className="text-[10px] font-bold text-white">+{card.Resist}</span>
+                    <span className="text-[9px] font-bold text-white uppercase">Resist +{card.Resist}</span>
                 </div>
             )}
 
             {/* Location Move Cost */}
             {card.Type === "Location" && (
-                <div className="bg-emerald-900/80 border border-emerald-500 rounded px-1.5 py-0.5 shadow-lg flex items-center gap-0.5" title={`Move Cost: ${card.MoveCost}`}>
+                <div className="bg-emerald-900 border border-emerald-400 rounded px-1.5 py-0.5 shadow-lg flex items-center gap-1">
                      <MapPin size={10} className="text-emerald-200" />
-                     <span className="text-[10px] font-bold text-white">{card.MoveCost}</span>
+                     <span className="text-[9px] font-bold text-white">Move: {card.MoveCost}</span>
                 </div>
             )}
         </div>
@@ -177,83 +178,71 @@ export const Card: React.FC<CardProps> = ({
              </div>
         )}
 
-        {/* --- 1. Image Layer --- */}
-        {!imageError && (
-            <img 
-                src={card.Image} 
-                alt={card.Name}
-                className="absolute inset-0 w-full h-full object-cover z-0"
-                onError={() => setImageError(true)}
-                loading="lazy"
-            />
-        )}
-
-        {/* --- 2. CSS Fallback Layer (High Fidelity) --- */}
-        {imageError && (
-            <div className={`absolute inset-0 flex flex-col z-10 p-2 ${card.Inkable ? 'bg-slate-800' : 'bg-slate-900'}`}>
-                
-                {/* Header: Cost & Name */}
-                <div className="flex justify-between items-start mb-1">
-                    <div className="relative">
-                        <div className="w-8 h-8 rounded-full bg-slate-900 border-2 border-amber-500 flex items-center justify-center text-amber-400 font-bold font-cinzel text-lg shadow-lg z-20 relative">
-                            {card.Cost}
-                        </div>
-                        {card.Inkable && (
-                            <div className="absolute -inset-1 rounded-full border border-amber-500/50 animate-pulse"></div>
-                        )}
+        {/* --- High Fidelity Text Layout --- */}
+        <div className="absolute inset-0 flex flex-col z-10 p-2">
+            
+            {/* Header: Cost & Name */}
+            <div className="flex justify-between items-start mb-1">
+                <div className="relative">
+                    <div className="w-8 h-8 rounded-full bg-slate-900 border-2 border-amber-500 flex items-center justify-center text-amber-400 font-bold font-cinzel text-lg shadow-lg z-20 relative">
+                        {card.Cost}
                     </div>
-                    <div className="flex-1 ml-2 mt-1 overflow-hidden">
-                        <div className="text-[10px] leading-tight font-bold text-slate-900 bg-white/90 px-2 py-1 rounded-r-lg border-l-4 border-slate-800 shadow-sm font-cinzel truncate">
-                            {card.Name}
-                        </div>
+                    {card.Inkable && (
+                        <div className="absolute -inset-1 rounded-full border border-amber-500/50 animate-pulse"></div>
+                    )}
+                </div>
+                <div className="flex-1 ml-2 mt-1 overflow-hidden">
+                    <div className="text-[10px] leading-tight font-bold text-slate-900 bg-white/95 px-2 py-1 rounded-r-lg border-l-4 border-slate-800 shadow-sm font-cinzel truncate">
+                        {card.Name}
                     </div>
-                </div>
-
-                {/* Art Placeholder */}
-                <div className="flex-1 bg-slate-800/80 rounded border border-slate-600/50 m-1 flex items-center justify-center overflow-hidden relative group">
-                     <div className="absolute inset-0 opacity-10 bg-[url('https://www.transparenttextures.com/patterns/stardust.png')]"></div>
-                     <span className="text-slate-500 text-xs font-cinzel text-center px-2 opacity-50">
-                        {card.Type}<br/>
-                        <span className="text-[9px] italic">{card.Class}</span>
-                     </span>
-                </div>
-
-                {/* Stats Row (Strength / Willpower / Lore) */}
-                <div className="flex justify-between items-center px-1 mb-1">
-                    {(card.Strength !== undefined) && (
-                        <div className="flex items-center justify-center w-7 h-7 rounded-full bg-slate-700 border border-slate-500 text-white font-bold text-xs shadow-md" title="Strength">
-                            <Sword size={10} className="mr-0.5" /> {card.Strength}
-                        </div>
-                    )}
-                    {card.Lore !== undefined && (
-                         <div className="flex items-center justify-center w-6 h-8 bg-slate-900 border border-emerald-500/50 rounded text-emerald-400 font-bold text-xs shadow-md" title="Lore">
-                             <div className="flex flex-col items-center">
-                                <Scroll size={8} />
-                                {card.Lore}
-                             </div>
-                        </div>
-                    )}
-                    {(card.Willpower !== undefined) && (
-                        <div className="flex items-center justify-center w-7 h-7 rounded-full bg-slate-700 border border-slate-500 text-white font-bold text-xs shadow-md" title="Willpower">
-                            <Shield size={10} className="mr-0.5" /> {card.Willpower}
-                        </div>
-                    )}
-                </div>
-
-                {/* Body Text Area */}
-                <div className="bg-slate-100/95 rounded p-2 min-h-[50px] flex flex-col justify-center border-2 border-slate-300 relative shadow-inner">
-                    {card.Abilities && card.Abilities.length > 0 ? (
-                        <div className="text-[8px] text-slate-900 font-serif leading-tight">
-                            {card.Abilities.map((ability, i) => (
-                                <p key={i} className="mb-1 last:mb-0">{ability}</p>
-                            ))}
-                        </div>
-                    ) : (
-                        <p className="text-[8px] text-slate-500 italic text-center">{card.Flavor_Text}</p>
-                    )}
                 </div>
             </div>
-        )}
+
+            {/* Classification & Type */}
+            <div className="flex-1 bg-slate-800/50 rounded border border-slate-600/50 m-1 flex flex-col items-center justify-center overflow-hidden relative group">
+                 <div className="absolute inset-0 opacity-10 bg-[url('https://www.transparenttextures.com/patterns/stardust.png')]"></div>
+                 <span className="text-slate-400 text-xs font-cinzel text-center px-2 z-10">
+                    {card.Type}
+                 </span>
+                 <span className="text-[9px] text-slate-500 italic z-10">{card.Class}</span>
+                 {card.Rarity && <span className="text-[8px] text-amber-600/70 mt-1 uppercase tracking-widest">{card.Rarity}</span>}
+            </div>
+
+            {/* Stats Row (Strength / Willpower / Lore) */}
+            <div className="flex justify-between items-center px-1 mb-1">
+                {(card.Strength !== undefined) && (
+                    <div className="flex items-center justify-center w-7 h-7 rounded-full bg-slate-700 border border-slate-500 text-white font-bold text-xs shadow-md" title="Strength">
+                        <Sword size={10} className="mr-0.5" /> {card.Strength}
+                    </div>
+                )}
+                {card.Lore !== undefined && (
+                     <div className="flex items-center justify-center w-6 h-8 bg-slate-900 border border-emerald-500/50 rounded text-emerald-400 font-bold text-xs shadow-md" title="Lore">
+                         <div className="flex flex-col items-center">
+                            <Scroll size={8} />
+                            {card.Lore}
+                         </div>
+                    </div>
+                )}
+                {(card.Willpower !== undefined) && (
+                    <div className="flex items-center justify-center w-7 h-7 rounded-full bg-slate-700 border border-slate-500 text-white font-bold text-xs shadow-md" title="Willpower">
+                        <Shield size={10} className="mr-0.5" /> {card.Willpower}
+                    </div>
+                )}
+            </div>
+
+            {/* Body Text Area */}
+            <div className="bg-slate-100/95 rounded p-2 min-h-[50px] flex flex-col justify-center border-2 border-slate-300 relative shadow-inner">
+                {card.Abilities && card.Abilities.length > 0 ? (
+                    <div className="text-[8px] text-slate-900 font-serif leading-tight">
+                        {card.Abilities.map((ability, i) => (
+                            <p key={i} className="mb-1 last:mb-0 border-b border-slate-300/50 pb-0.5 last:border-0">{ability}</p>
+                        ))}
+                    </div>
+                ) : (
+                    <p className="text-[8px] text-slate-500 italic text-center">{card.Flavor_Text}</p>
+                )}
+            </div>
+        </div>
     </div>
   );
 };

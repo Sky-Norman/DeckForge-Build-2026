@@ -14,10 +14,19 @@ export interface CardData {
   Abilities?: string[];
   Flavor_Text?: string;
   
-  // New Logic Fields
+  // Logic Fields
   MoveCost?: number; // For Locations
   Resist?: number;   // Keyword: Resist +X
   Evasive?: boolean; // Keyword: Evasive
+}
+
+export interface CardModifiers {
+  cantQuest: boolean;
+  cantChallenge: boolean;
+  frozen: boolean; // If true, does not ready during Ready Phase
+  evasiveGranted: boolean; // Temporary Evasive
+  resistGranted: number; // Temporary Resist bonus
+  strengthBonus: number; // Temporary Strength bonus
 }
 
 export interface GameCard extends CardData {
@@ -26,6 +35,9 @@ export interface GameCard extends CardData {
   isDried: boolean;
   isFaceDown: boolean;
   damage: number;
+  
+  // Modifier Engine
+  modifiers: CardModifiers;
   
   // Location Mechanics
   currentLocationId?: string; // If character is at a location
