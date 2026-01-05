@@ -17,6 +17,13 @@ jobs:
         with:
           node-version: 20
 
+      - name: Hydrate Library
+        run: |
+          # Create public dir if it doesn't exist and fetch the latest data
+          mkdir -p public
+          curl -s https://lorcanajson.org/files/current/en/allCards.json -o public/allCards.json
+          echo "Tactical Oracle: Library hydrated for build."
+
       - name: Install & Build
         run: |
           npm install
@@ -25,7 +32,6 @@ jobs:
       - name: Azure CLI Upload
         uses: azure/cli@v2
         with:
-          # Note: Must be camelCase 'inlineScript' even in v2
           inlineScript: |
             az storage blob upload-batch \
               --connection-string "${{ secrets.AZURE_STORAGE_CONNECTION_STRING }}" \
